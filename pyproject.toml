@@ -1,0 +1,21 @@
+[project]
+name = "alphafold3-decoded"
+version = "0.1.0"
+description = "Tutorial code for implementing AlphaFold3 from scratch."
+requires-python = "==3.12.*"
+
+dependencies = [
+    "torch",
+    "jax", # needed so numpy can read bfloat16 param files
+    "numpy>=2.4",
+    "tqdm",
+    "zstandard",
+    "rdkit==2024.03.5",
+    "atomworks[ml]>=2.2.0",
+    "dotenv>=0.9.9",
+    "ipykernel>=7.1.0",
+    "lightning>=2.6.1",
+    "torchvision>=0.22.1",
+    "wandb>=0.24.1",
+    "matplotlib>=3.10.8",
+]
