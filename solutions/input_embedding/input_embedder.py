@@ -1,5 +1,5 @@
 import torch
-from config.config import InputEmbeddingConfig
+from config import InputEmbeddingConfig
 from feature_extraction.feature_extraction import Batch
 from torch import nn
 import torch.nn.functional as F

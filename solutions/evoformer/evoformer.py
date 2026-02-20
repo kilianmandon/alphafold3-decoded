@@ -1,6 +1,6 @@
 import copy
 
-from config.config import Config, MSAModuleConfig, PairformerConfig, TemplateModuleConfig
+from config import Config, MSAModuleConfig, PairformerConfig, TemplateModuleConfig
 from feature_extraction.feature_extraction import Batch
 from feature_extraction.token_features import TokenFeatures
 import torch
@@ -23,9 +23,9 @@ class Evoformer(nn.Module):
         c_s = global_config.c_s
         c_m = global_config.c_m
         c_z = global_config.c_z
-        msa_feat_dim = global_config.c_msa_feat
-        target_feat_dim = global_config.c_target_feat
-        rel_feat_dim = global_config.c_rel_feat
+        msa_feat_dim = global_config.msa_feat_dim
+        target_feat_dim = global_config.target_feat_dim
+        rel_feat_dim = global_config.rel_feat_dim
         
 
         self.input_embedder = InputEmbedder(c_s, c_z, target_feat_dim, rel_feat_dim, input_embedding_config)

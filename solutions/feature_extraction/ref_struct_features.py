@@ -1,4 +1,5 @@
 from dataclasses import dataclass, fields
+from functools import cached_property
 import math
 
 import numpy as np
@@ -21,6 +22,10 @@ Array = np.ndarray | torch.Tensor
 
 @dataclass
 class RefStructFeatures:
+    """
+    Reference Structure Features for AlphaFold 3. All features have shape (**batch_shape, n_atoms), except for atom_name_chars which has shape (**batch_shape, n_atoms, 4).
+    """
+
     element: Array
     charge: Array
     atom_name_chars: Array
@@ -30,7 +35,7 @@ class RefStructFeatures:
     token_index: Array
 
 
-    @property
+    @cached_property
     def block_mask(self) -> BlockMask:
         unpadded_atom_count = self.unpadded_atom_count
         centers = torch.arange(16, self.atom_count, 32, device=self.mask.device, dtype=torch.int32)
@@ -47,7 +52,8 @@ class RefStructFeatures:
             return (q < unpadded_atom_count) & (left_bounds[q//32] <= k) & (k < right_bounds[q//32])
         
         batch_size = math.prod(self.mask.shape[:-2])
-        return create_block_mask(mask_mod, batch_size, None, self.atom_count, self.atom_count, self.mask.device)
+        block_mask = create_block_mask(mask_mod, batch_size, None, self.atom_count, self.atom_count, self.mask.device)
+        return block_mask
 
 
     @property
@@ -61,7 +67,7 @@ class RefStructFeatures:
     def atom_count(self):
         return self.mask.shape[-1]
 
-    @property
+    @cached_property
     def token_layout_ref_mask(self):
         token_count = self.atom_count // 24
 
@@ -131,12 +137,6 @@ class RefStructFeatures:
 
 class CalculateRefStructFeatures(Transform):
 
-    def __init__(self):
-        ...
-
-    def check_input(self, data):
-        ...
-
     def prep_atom_chars(self, atom_names):
         padded = np.strings.ljust(atom_names, width=4)
         cropped = np.strings.slice(padded, 0, 4)
@@ -149,7 +149,6 @@ class CalculateRefStructFeatures(Transform):
         residue_starts, residue_ends = residue_borders[:-1], residue_borders[1:]
         res_names = atom_array.res_name[residue_starts]
         chain_iids = atom_array.chain_iid[residue_starts]
-        to_generate = list(set(zip(res_names, chain_iids)))
 
         known_ccd_codes = get_available_ccd_codes() - { 'UNL' }
 
@@ -167,7 +166,6 @@ class CalculateRefStructFeatures(Transform):
                 conformer = cached_unknown_conformers[res_name]
             else:
                 if (res_name, chain_iid) not in cached_conformers:
-                    # mol = ccd_code_to_rdkit_with_conformers(res_name, 1, timeout=None, seed=1, optimize=False, attempts_with_distance_geometry=1)
                     mol = ccd_code_to_rdkit(res_name, hydrogen_policy='keep')
                     annotations = mol._annotations
                     order = np.argsort(annotations['atom_name'])

@@ -1,4 +1,5 @@
 import json
+import math
 import numpy as np
 import torch
 
@@ -11,6 +12,19 @@ from atomworks.io.tools.inference import components_to_atom_array
 Array = np.ndarray | torch.Tensor
 
 def pad_to_shape(data: Array , padded_shape, value=0):
+    """
+    Pads the data to the specified shape, using the specified value for padding.
+    """
+
+    padded = None
+
+    """
+    TODO: Implement  the padding. This should work with both numpy arrays and torch tensors, you can use isinstance(data, np.ndarray) to check which one it is. You can create the padded array using np.full or torch.full, and then fill in the value by creating an index of the form
+    (slice(0, dim_1), slice(0, dim_2), ...), then setting the data into the padded array using this index. If you are not familiar with this way of indexing, a tuple of slices is exactly what indexing of the form
+        arr[:dim_1, :dim_2, ...] 
+    creates internally. Using the function slice(...) explicitly is helpful when you want to create indices programmatically, for example if you don't know the number of dimensions in advance. 
+    """
+
     if isinstance(data, np.ndarray):
         padded = np.full(padded_shape, fill_value=value, dtype=data.dtype, device=data.device)
     else:
@@ -19,29 +33,39 @@ def pad_to_shape(data: Array , padded_shape, value=0):
     inds = tuple(slice(i) for i in data.shape)
     padded[inds] = data
 
+    """ End of your code """
+
     return padded
 
 
-def round_down_to(data, rounding_target, return_indices=False):
-    sorting_indices = np.argsort(rounding_target)[::-1]
-    target_inds = np.argmax(rounding_target[sorting_indices] <= data[..., None], axis=-1)
-    target_inds = sorting_indices[target_inds]
+def round_down_to(data: np.ndarray, rounding_target: np.ndarray, return_indices=False):
+    """
+    Rounds the data values down to the closest value in rounding_target, optionally returning the indices of the selected values.
+
+    Args:
+        data: numpy array of any shape
+        rounding_target: Sorted 1D numpy array of values to round down to
+    """
+
+    rounding_results = None
+    rounding_inds = None
+
+    """
+    TODO: Implement the rounding procedure. You can unsqueeze data and do a broadcasted comparison to find which valus in rounding_target are smaller or equal to the values in data. We want the last value that satisfies this, or the first in the reversed rounding_target. To find the first index that fulfills this condition, you can use np.argmax on the broadcasted dimension, then calculate back to the index in the original array. These indices can be used as an integer index to get the rounded values from rounding_target. 
+    """
+
+    rounding_inds = np.argmax(rounding_target[::-1] <= data[..., None], axis=-1)
+    rounding_inds = rounding_target.shape[0] - 1 - rounding_inds
+    rounding_results = rounding_target[rounding_inds]
+
+    """ End of your code """
 
     if return_indices:
-        return rounding_target[target_inds], target_inds
+        return rounding_results, rounding_inds
     else:
-        return rounding_target[target_inds]
+        return rounding_results
 
-def round_up_to(data, rounding_target, return_indices=False):
-    data = np.array(data)
-    sorting_indices = np.argsort(rounding_target)
-    target_inds = np.argmax(rounding_target[sorting_indices] >= data[..., None], axis=-1)
-    target_inds = sorting_indices[target_inds]
 
-    if return_indices:
-        return rounding_target[target_inds], target_inds
-    else:
-        return rounding_target[target_inds]
 
 
 def masked_mean(feat: Array, mask: Array, axis, keepdims=False):
@@ -53,6 +77,12 @@ def masked_mean(feat: Array, mask: Array, axis, keepdims=False):
         feat_sum = (feat*mask).sum(dim=axis, keepdim=keepdims)
         count = mask.sum(dim=axis, keepdim=keepdims)
         return feat_sum / torch.clip(count, min=1e-10)
+
+
+def rand_rot(batch_shape: tuple, device: torch.device):
+    rand_matrices = torch.randn(batch_shape + (3, 3), device=device)
+    q, _ = torch.linalg.qr(rand_matrices)
+    return q
 
 
 

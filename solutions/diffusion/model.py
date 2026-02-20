@@ -1,5 +1,5 @@
 from torch import nn
-from config.config import Config
+from config import Config
 from evoformer.evoformer import Evoformer
 from diffusion.diffusion import DiffusionModule, DiffusionSampler
 from feature_extraction.feature_extraction import Batch

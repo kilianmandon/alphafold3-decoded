@@ -37,7 +37,7 @@ class AdaptiveZeroInit(nn.Module):
 
 
 class AttentionPairBias(nn.Module):
-    def __init__(self, c_a, c_z, n_head, c_s=None, adaptive=False, biased_layer_norm_z=True, split_ada_qk=False, no_compilation=False):
+    def __init__(self, c_a, c_z, n_head, c_s=None, adaptive=False, biased_layer_norm_z=True, split_ada_qk=False):
         super().__init__()
         c = c_a//n_head
         if adaptive:
@@ -60,7 +60,7 @@ class AttentionPairBias(nn.Module):
         self.linear_g = nn.Linear(c_a, c*n_head, bias=False)
         self.linear_out = nn.Linear(c*n_head, c_a, bias=False)
 
-        if torch.cuda.is_available() and not no_compilation:
+        if torch.cuda.is_available():
             self.flex_attention = torch.compile(flex_attention)
         else:
             self.flex_attention = flex_attention
@@ -107,7 +107,7 @@ class AttentionPairBias(nn.Module):
             return score + bias[b, q_idx, kv_idx, h]
 
         q = q.contiguous(); k = k.contiguous(); v = v.contiguous()
-        o = self.flex_attention(q, k, v, score_mod=bias_score_mod, block_mask=block_mask)
+        o = self.flex_attention(q, k, v, score_mod=bias_score_mod, block_mask=block_mask, kernel_options={ 'BLOCK_M': 32, 'BLOCK_N': 32 })
 
         o = o.reshape(batch_shape + (N_head, N_token, c))
         o = torch.einsum('...hjc->...jhc', o)
@@ -154,9 +154,9 @@ class ConditionedTransitionBlock(nn.Module):
         return a
 
 class DiffusionTransformer(nn.Module):
-    def __init__(self, c_a, c_z, n_head, c_s, n_blocks, split_ada_qk=False, no_compilation=False):
+    def __init__(self, c_a, c_z, n_head, c_s, n_blocks, split_ada_qk=False):
         super().__init__()
-        self.att_pair_bias = nn.ModuleList([AttentionPairBias(c_a, c_z, n_head, c_s, adaptive=True, biased_layer_norm_z=False, split_ada_qk=split_ada_qk, no_compilation=no_compilation) for _ in range(n_blocks)])
+        self.att_pair_bias = nn.ModuleList([AttentionPairBias(c_a, c_z, n_head, c_s, adaptive=True, biased_layer_norm_z=False, split_ada_qk=split_ada_qk) for _ in range(n_blocks)])
         self.cond_trans = nn.ModuleList([ConditionedTransitionBlock(c_a, c_s) for _ in range(n_blocks)])
         self.N_block = n_blocks
 

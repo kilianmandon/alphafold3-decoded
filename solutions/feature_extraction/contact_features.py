@@ -19,9 +19,9 @@ class CalculateContactMatrix(Transform):
         TODO: Construct contact_matrix. Note the specifics: Only entries i<j are set to 1, and only if either token i or j is atomized (or both).
 
         Hints: 
-            - You need the token index each atom of the bond belongs to. To do so, you can use get_token_starts to get the atom indices of the tokens, and round the bond atom indices down using utils.round_down_to (which optionally returns the index of the target it rounded down to).
-            - atom_array.atomize is a boolean array of shape (n_atom,) that indicates whether each atom is atomized or not. This can be indexed with the token starts to get a boolean array of shape (n_token,).
-            - be sure to set only entries i<j (also not i==j) to 1.
+            - Given the atom indices of the bonds, 'bonds', you need the token index each of these atoms belongs to. To do so, you can use get_token_starts to get the index of the first atom in each token of the input, and round the bond atom indices down to those using utils.round_down_to (which optionally returns the index of the target it rounded down to).
+            - atom_array.atomize is a boolean array of shape (n_atom,) that indicates whether the atoms belong to an atomized token or not. This can be indexed with the token starts to get a boolean array of shape (n_token,).
+            - be sure to set only entries i<j to 1 (not where i==j).
         """
 
         atom1_idxs, atom2_idxs, _ = bonds.T

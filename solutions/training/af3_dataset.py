@@ -23,7 +23,7 @@ from atomworks.ml.transforms.crop import CropSpatialLikeAF3
 from torch.utils.data import WeightedRandomSampler
 
 from common.utils import load_alphafold_input
-from config.config import Config
+from config import Config
 from feature_extraction.feature_extraction import collate_batch, custom_af3_pipeline
 
 

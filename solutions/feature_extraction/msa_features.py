@@ -1,5 +1,4 @@
 import copy
-import scripts.tensortrace as ttr
 from dataclasses import dataclass
 import numpy as np
 import torch

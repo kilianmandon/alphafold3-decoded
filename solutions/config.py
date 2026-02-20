@@ -2,13 +2,20 @@ from dataclasses import dataclass, field
 
 @dataclass
 class GlobalConfig:
+    # Single representation
     c_s: int = 384
+    # MSA representation
     c_m: int = 64
+    # Pair representation
     c_z: int = 128
+    # Number of recycling iterations
     n_cycle: int = 11
-    c_rel_feat: int = 139
-    c_target_feat: int = 449
-    c_msa_feat: int = 34
+    # relative encoding feature
+    rel_feat_dim: int = 139
+    # target feature
+    target_feat_dim: int = 449
+    # MSA feature
+    msa_feat_dim: int = 34
 
 @dataclass
 class FeaturizationConfig:

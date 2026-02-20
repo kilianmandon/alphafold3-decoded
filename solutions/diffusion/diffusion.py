@@ -2,7 +2,7 @@ from torch import nn
 import torch
 import tqdm
 
-from config.config import Config
+from config import Config
 from input_embedding.atom_attention import AtomAttentionDecoder, AtomAttentionEncoder
 from feature_extraction.feature_extraction import Batch
 from feature_extraction.ref_struct_features import RefStructFeatures
@@ -13,7 +13,6 @@ import common.utils as utils
 
 class DiffusionModule(nn.Module):
     def __init__(self, config: Config):
-    # def __init__(self, c_atom=128, c_a=768, c_s=384, c_z=128, sigma_data=16):
         super().__init__()
 
         diffusion_config = config.diffusion_config
@@ -22,15 +21,15 @@ class DiffusionModule(nn.Module):
         c_token = diffusion_config.atom_attention_config.c_token
         c_s = global_config.c_s
         c_z = global_config.c_z
-        target_feat_dim = global_config.c_target_feat
-        rel_feat_dim = global_config.c_rel_feat
+        target_feat_dim = global_config.target_feat_dim
+        rel_feat_dim = global_config.rel_feat_dim
         c_fourier = diffusion_config.c_fourier
         n_head_diffusion_transformer = diffusion_config.n_head_diffusion_transformer
         n_block_diffusion_transformer = diffusion_config.n_block_diffusion_transformer
 
         self.diffusion_conditioning = DiffusionConditioning(c_s, c_z, target_feat_dim, rel_feat_dim, sigma_data, c_fourier)
         self.atom_att_enc = AtomAttentionEncoder(c_s, c_z, diffusion_config.atom_attention_config, use_trunk=True)
-        self.diffusion_transformer = DiffusionTransformer(c_token, c_z, n_head=n_head_diffusion_transformer, c_s=c_s, n_blocks=n_block_diffusion_transformer, no_compilation=True)
+        self.diffusion_transformer = DiffusionTransformer(c_token, c_z, n_head=n_head_diffusion_transformer, c_s=c_s, n_blocks=n_block_diffusion_transformer)
         self.atom_att_dec = AtomAttentionDecoder(diffusion_config.atom_attention_config)
 
         self.layer_norm_s = nn.LayerNorm(c_s, bias=False)
@@ -209,14 +208,10 @@ class CenterRandomAugmentation(nn.Module):
         x = x - utils.masked_mean(x, ref_struct.mask[..., None], axis=(-2), keepdims=True)
 
         if rand_rot is None:
-            rand_quats = torch.randn(batch_shape+(1,4), device=device)
-            rand_quats /= torch.linalg.norm(rand_quats, dim=-1, keepdim=True)
-            t = self.s_trans * torch.randn(batch_shape+(1,3), device=device)
+            rand_rot = utils.rand_rot(batch_shape, device=device)
+            rand_trans = self.s_trans * torch.randn(batch_shape+(1,3), device=device)
 
-            # TODO: Random rotation matrix
-            x = utils.quat_vector_mul(rand_quats, x) + t
-        else:
-            x = torch.einsum('ji,...j->...i', rand_rot, x) + rand_trans
+        x = torch.einsum('ji,...j->...i', rand_rot, x) + rand_trans
 
         return x
 

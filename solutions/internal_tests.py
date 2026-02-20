@@ -1,10 +1,10 @@
 import time
 import torch
 from common.utils import load_alphafold_input
-from config.config import Config
+from config import Config
 from feature_extraction.feature_extraction import Batch, custom_af3_pipeline, tree_map
 from diffusion.model import Model
-import scripts.tensortrace as ttr
+import tensortrace as ttr
 
 
 def reorder_encoding(dim=-1, offset=0):
@@ -136,7 +136,7 @@ def main(test_name):
         'aug_rot': ttr.load_all('diffusion/rand_aug/rot', processing=[indexing(0), to_device, to_float]),
         'aug_trans': ttr.load_all('diffusion/rand_aug/trans', processing=[indexing(0), to_device, to_float]),
     }
-    
+
     with ttr.Chapter('diffusion'):
         diff_x = model.diffusion_sampler(model.diffusion_module,
                                 s_input, s_trunk, z_trunk, rel_enc, 

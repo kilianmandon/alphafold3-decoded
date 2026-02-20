@@ -8,10 +8,6 @@ import tqdm
 import zstandard as zstd
 
 
-use_sparse = False
-linear_sparse_filler = '' if not use_sparse else '.linear'
-layer_norm_sparse_filler = '' if not use_sparse else '.layer_norm'
-
 
 def create_atom_att_encoder(jax_base, jax_sub, pytorch_base, use_trunk=False):
     name_map_att_enc = {
@@ -37,31 +33,31 @@ def create_atom_att_encoder(jax_base, jax_sub, pytorch_base, use_trunk=False):
             'weights': f'{pytorch_base}.single_to_pair_row.weight'
         },
         f'{jax_base}/{jax_sub}_embed_pair_offsets_1': {
-            'weights': f'{pytorch_base}.embed_pair_offsets{linear_sparse_filler}.weight'
+            'weights': f'{pytorch_base}.embed_pair_offsets.weight'
         },
         f'{jax_base}/{jax_sub}_embed_pair_distances_1': {
-            'weights': f'{pytorch_base}.embed_pair_distances{linear_sparse_filler}.weight'
+            'weights': f'{pytorch_base}.embed_pair_distances.weight'
         },
         f'{jax_base}/{jax_sub}_embed_pair_offsets_valid': {
-            'weights': f'{pytorch_base}.embed_pair_mask{linear_sparse_filler}.weight'
+            'weights': f'{pytorch_base}.embed_pair_mask.weight'
         },
         f'{jax_base}/{jax_sub}_pair_mlp_1': {
-            'weights': f'{pytorch_base}.pair_mlp.1{linear_sparse_filler}.weight'
+            'weights': f'{pytorch_base}.pair_mlp.1.weight'
         },
         f'{jax_base}/{jax_sub}_pair_mlp_2': {
-            'weights': f'{pytorch_base}.pair_mlp.3{linear_sparse_filler}.weight'
+            'weights': f'{pytorch_base}.pair_mlp.3.weight'
         },
         f'{jax_base}/{jax_sub}_pair_mlp_3': {
-            'weights': f'{pytorch_base}.pair_mlp.5{linear_sparse_filler}.weight'
+            'weights': f'{pytorch_base}.pair_mlp.5.weight'
         },
         f'{jax_base}/{jax_sub}_atom_transformer_encoder/pair_input_layer_norm': {
             'split': 'XXX',
-            'scale': f'{pytorch_base}.atom_transformer.att_pair_bias.XXX.layer_norm_z{layer_norm_sparse_filler}.weight'
+            'scale': f'{pytorch_base}.atom_transformer.att_pair_bias.XXX.layer_norm_z.weight'
             # 'scale': f'{pytorch_base}.atom_transformer.pair_input_layer_norm.weight'
         },
         f'{jax_base}/{jax_sub}_atom_transformer_encoder/pair_logits_projection': {
             'split': 'XXX',
-            'weights': f'{pytorch_base}.atom_transformer.att_pair_bias.XXX.linear_b{linear_sparse_filler}.weight',
+            'weights': f'{pytorch_base}.atom_transformer.att_pair_bias.XXX.linear_b.weight',
             # 'flatten': (-2, -1),
             # 'weights': f'{pytorch_base}.atom_transformer.pair_logits_projection.weight',
         },
@@ -167,10 +163,10 @@ def create_atom_att_encoder(jax_base, jax_sub, pytorch_base, use_trunk=False):
                 'scale': f'{pytorch_base}.trunk_layer_norm_s.weight',
             },
             f'{jax_base}/{jax_sub}_embed_trunk_pair_cond': {
-                'weights': f'{pytorch_base}.trunk_linear_z{linear_sparse_filler}.weight',
+                'weights': f'{pytorch_base}.trunk_linear_z.weight',
             },
             f'{jax_base}/{jax_sub}_lnorm_trunk_pair_cond': {
-                'scale': f'{pytorch_base}.trunk_layer_norm_z{layer_norm_sparse_filler}.weight',
+                'scale': f'{pytorch_base}.trunk_layer_norm_z.weight',
             },
             f'{jax_base}/{jax_sub}_atom_positions_to_features': {
                 'weights': f'{pytorch_base}.trunk_linear_r.weight',
@@ -1337,13 +1333,13 @@ name_map_atom_att_dec = {
     'diffuser/~/diffusion_head/diffusion_atom_transformer_decoder/pair_input_layer_norm': {
         # Shape: (3, 16)
         'split': 'XXX',
-        'scale': f'diffusion_module.atom_att_dec.atom_transformer.att_pair_bias.XXX.layer_norm_z{layer_norm_sparse_filler}.weight',
+        'scale': f'diffusion_module.atom_att_dec.atom_transformer.att_pair_bias.XXX.layer_norm_z.weight',
         # 'scale': 'diffusion_module.atom_att_dec.atom_transformer.pair_input_layer_norm.weight',
     },
     'diffuser/~/diffusion_head/diffusion_atom_transformer_decoder/pair_logits_projection': {
         # Shape: (3, 16, 4)
         'split': 'XXX',
-        'weights': f'diffusion_module.atom_att_dec.atom_transformer.att_pair_bias.XXX.linear_b{linear_sparse_filler}.weight',
+        'weights': f'diffusion_module.atom_att_dec.atom_transformer.att_pair_bias.XXX.linear_b.weight',
         # 'flatten': (-2, -1),
         # 'weights': 'diffusion_module.atom_att_dec.atom_transformer.pair_logits_projection.weight',
     },

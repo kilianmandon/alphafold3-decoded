@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from config.config import AtomAttentionConfig
+from config import AtomAttentionConfig
 from feature_extraction.ref_struct_features import RefStructFeatures
 from common.block_sparse_tensor import BlockSparseTensor
 from common.modules import DiffusionTransformer
@@ -130,8 +130,6 @@ class AtomAttentionEncoder(nn.Module):
         return token_act, skip
 
     def per_atom_cond(self, ref_struct: RefStructFeatures):
-
-
         mask = ref_struct.mask[..., None].to(torch.float32)
         element = ref_struct.element.long()
         charge = ref_struct.charge[..., None].to(torch.float32)
