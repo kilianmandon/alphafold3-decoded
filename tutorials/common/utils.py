@@ -25,13 +25,8 @@ def pad_to_shape(data: Array , padded_shape, value=0):
     creates internally. Using the function slice(...) explicitly is helpful when you want to create indices programmatically, for example if you don't know the number of dimensions in advance. 
     """
 
-    if isinstance(data, np.ndarray):
-        padded = np.full(padded_shape, fill_value=value, dtype=data.dtype, device=data.device)
-    else:
-        padded = torch.full(padded_shape, fill_value=value, dtype=data.dtype, device=data.device)
-
-    inds = tuple(slice(i) for i in data.shape)
-    padded[inds] = data
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 
@@ -54,9 +49,8 @@ def round_down_to(data: np.ndarray, rounding_target: np.ndarray, return_indices=
     TODO: Implement the rounding procedure. You can unsqueeze data and do a broadcasted comparison to find which valus in rounding_target are smaller or equal to the values in data. We want the last value that satisfies this, or the first in the reversed rounding_target. To find the first index that fulfills this condition, you can use np.argmax on the broadcasted dimension, then calculate back to the index in the original array. These indices can be used as an integer index to get the rounded values from rounding_target. 
     """
 
-    rounding_inds = np.argmax(rounding_target[::-1] <= data[..., None], axis=-1)
-    rounding_inds = rounding_target.shape[0] - 1 - rounding_inds
-    rounding_results = rounding_target[rounding_inds]
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 
@@ -85,7 +79,8 @@ def round_to_bucket(v: int) -> int:
     TODO: Implement the logic to select the smallest bucket value that fulfills b >= v.
     """
 
-    selected_bucket =  buckets[np.argmax(buckets >= v)]
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 
@@ -105,9 +100,8 @@ def masked_mean(feat: Array, mask: Array, axis, keepdims=False):
     TODO: Implement the masked mean function. This calculates the mean of feat along axis, but not dividing by the shape of the axis, but by the number of valid (non-masked) entries along that axis. If this number is zero, divide by 1e-10 instead.
     """
 
-    feat_sum = (feat*mask).sum(dim=axis, keepdim=keepdims)
-    count = mask.sum(dim=axis, keepdim=keepdims)
-    result =  feat_sum / torch.clip(count, min=1e-10)
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 
@@ -124,9 +118,8 @@ def rand_rot(batch_shape: tuple, device: torch.device):
     TODO: Sample random rotation matrices of shape (**batch_shape, 3, 3). To do this, you can sample a random normal matrix, do a QR decomposition with torch.linalg.qr, then fix the sign of the determinant: Rotation matrices have determinant 1. You can compute the determinant of q with torch.linalg.det(q). For 3x3 matrices, we have det(-A) = -det(A), so we can flip the sign of q's determinant by flipping the sign of all values in q.
     """
 
-    rand_matrices = torch.randn(batch_shape + (3, 3), device=device)
-    q, _ = torch.linalg.qr(rand_matrices)
-    q = q * torch.linalg.det(q).sign()[..., None, None]
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 
@@ -145,6 +138,9 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
 
 
 def load_alphafold_input(path):
+    print(f'Loading input from {str(path)}')
+    import os
+    print(f'cwd: {os.getcwd()}')
     with open(path, 'r') as f:
         data = json.load(f)
 

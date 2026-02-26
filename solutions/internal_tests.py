@@ -148,6 +148,6 @@ def main(test_name):
 
 
 if __name__=='__main__':
-    test_name = 'multimer'
+    test_name = 'lysozyme'
     with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
         main(test_name)

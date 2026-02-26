@@ -150,30 +150,8 @@ def custom_af3_pipeline(config: Config, msa_shuffle_orders=None, is_inference=Tr
     Note for when you are doing Chapter Training: Also add a train_transform that is a RandomRoute between CropContiguousLikeAF3 and CropSpatialLikeAF3 with 0.5 probability each, cropping to a crop_size of 384. If is_inference is False, add this after the atomization step. You don't need to do this for the feature extraction part.
     """
 
-    # Note: You will only implement cropping in the very last step, you don't need to implement it here during the feature extraction part.
-    train_transform = RandomRoute([
-        CropContiguousLikeAF3(crop_size=384),
-        CropSpatialLikeAF3(crop_size=384),
-    ], probs=[0.5, 0.5])
-
-    transforms = [
-        RemoveHydrogens(),
-        HotfixDropSaccharideO1(),
-        AddGlobalAtomIdAnnotation(),
-        AtomizeByCCDName(
-            atomize_by_default=True,
-            res_names_to_ignore=STANDARD_AA + STANDARD_RNA + STANDARD_DNA,
-        ),
-
-        # Cropping
-        Identity() if is_inference else train_transform,
-
-        CalculateTokenFeatures(),
-        CalculateRefStructFeatures(),
-        CalculateMSAFeatures(max_msa_sequences, msa_trunc_count, n_cycle, msa_shuffle_orders=msa_shuffle_orders),
-        CalculateContactMatrix(),
-        BuildBatch(),
-    ]
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 

@@ -25,23 +25,8 @@ class CalculateContactMatrix(Transform):
             - be sure to set only entries i<j to 1 (not where i==j).
         """
 
-        atom1_idxs, atom2_idxs, _ = bonds.T
-        token_starts = get_token_starts(atom_array)
-        _, atom1_token_indices = utils.round_down_to(atom1_idxs, token_starts, return_indices=True)
-        _, atom2_token_indices = utils.round_down_to(atom2_idxs, token_starts, return_indices=True)
-
-        is_atomized = utils.pad_to_shape(atom_array[token_starts].atomize, (padded_token_count,))
-
-        atom1_token_indices, atom2_token_indices = np.minimum(atom1_token_indices, atom2_token_indices), np.maximum(atom1_token_indices, atom2_token_indices)
-        contact_matrix = np.zeros((padded_token_count, padded_token_count))
-        contact_matrix[atom1_token_indices, atom2_token_indices] = 1
-
-        non_poly_poly = is_atomized.reshape(-1, 1) | is_atomized.reshape(1, -1)
-        non_diagonal = 1 - np.eye(padded_token_count)
-
-        contact_matrix = contact_matrix * non_poly_poly * non_diagonal
-
-        contact_matrix = contact_matrix[..., None]
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 

@@ -78,19 +78,19 @@ class EncodeMSA(Transform):
         """
         TODO: Set self.lookup_table, a numpy array of shape (len(MSA_INTEGER_TO_THREE_LETTER),). Atomworks stores the loaded MSA as an integer array, and their map MSA_INTEGER_TO_THREE_LETTER tells you which integer corresponds to which amino acid / nucleic acid. We want to allow conversion of the custom Atomworks encoding to the AF3 encoding through simple integer indexing, e.g. af3_enc_msa = self.lookup_table[atomworks_enc_msa]. To do so, if MSA_INTEGER_TO_THREE_LETTER has an entry i: GLY for example, we would need lookup_table[i] = AF3_TOKENS_MAP['GLY']. If 'GLY' was not present, the fallback should be AF3_TOKENS_MAP[UNKNOWN_AA]. 
         """
-        
-        self.lookup_table = np.zeros(len(MSA_INTEGER_TO_THREE_LETTER), dtype=np.int8)
-        for i_msa, code in MSA_INTEGER_TO_THREE_LETTER.items():
-            self.lookup_table[i_msa] = AF3_TOKENS_MAP.get(code, AF3_TOKENS_MAP[UNKNOWN_AA])
 
-        """ End of your code"""
+        # Replace 'pass' with your code
+        pass
+
+        """ End of your code """
 
     def forward(self, data):
         """
         TODO: For each entry chain_id, msa_data in data['polymer_msas_by_chain_id'], replace ,msa_data['msa'] with its AF3 encoding, using self.lookup_table.
         """
-        for chain_id, msa_data in data['polymer_msas_by_chain_id'].items():
-            data['polymer_msas_by_chain_id'][chain_id]['msa'] = self.lookup_table[msa_data['msa']]
+
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 
@@ -122,45 +122,8 @@ class ConcatMSAs(Transform):
             - Assemble the dict data['msa_features'] with the keys 'msa', 'deletion_count', 'full_msa_mask', and 'individual_msa_mask' and the corresponding values.
         """
 
-        if len(polymer_msas) == 0:
-            max_msa_size = 1
-        else:
-            max_msa_size = max(msa_data['msa'].shape[0] for msa_data in polymer_msas.values())
-        
-        padded_token_count = data['token_features'].token_count
-
-        full_msa = np.zeros((self.max_msa_sequences, padded_token_count), dtype=np.int64)
-        deletion_count = np.zeros((self.max_msa_sequences, padded_token_count), dtype=np.float32)
-        full_msa_mask = np.zeros((self.max_msa_sequences, padded_token_count), dtype=np.float32)
-        individual_msa_mask = np.zeros((self.max_msa_sequences, padded_token_count), dtype=np.float32)
-
-        full_msa[:max_msa_size, :unpadded_token_count] = AF3_TOKENS_MAP['<G>']
-        full_msa_mask[:max_msa_size, :unpadded_token_count] = 1
-
-        full_msa[0] = data['token_features'].restype
-        individual_msa_mask[0, :unpadded_token_count] = 1
-
-        tokens = data['atom_array'][get_token_starts(data['atom_array'])]
-        chain_borders = get_chain_instance_starts(tokens, add_exclusive_stop=True)
-        chain_starts, chain_ends = chain_borders[:-1], chain_borders[1:]
-
-        for chain_start, chain_end in zip(chain_starts, chain_ends):
-            chain_id = tokens.chain_id[chain_start]
-            if chain_id in polymer_msas:
-                chain_tokens = tokens[chain_start:chain_end]
-                residue_starts = get_residue_starts(chain_tokens) + chain_start
-                msa_size = polymer_msas[chain_id]['msa'].shape[0]
-
-                full_msa[:msa_size, residue_starts] = polymer_msas[chain_id]['msa']
-                deletion_count[:msa_size, residue_starts] = polymer_msas[chain_id]['ins']
-                individual_msa_mask[:msa_size, residue_starts] = ~polymer_msas[chain_id]['msa_is_padded_mask']
-
-        data['msa_features'] = {
-            'msa': full_msa,
-            'deletion_count': deletion_count,
-            'full_msa_mask': full_msa_mask,
-            'individual_msa_mask': individual_msa_mask,
-        }
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 
@@ -190,9 +153,9 @@ class AssembleMSAFeatures(Transform):
         """
         TODO: Implement the calculation of target_feat, by calculating a one-hot encoding of restype (e.g. using F.one_hot, translating from and to numpy) and concatenating it with profile and deletion_mean.
         """
-        restype_one_hot = F.one_hot(torch.tensor(restype), num_classes=32).numpy()
 
-        target_feat = np.concatenate((restype_one_hot, profile, deletion_mean[..., None]), axis=-1)
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 
@@ -221,22 +184,8 @@ class AssembleMSAFeatures(Transform):
           - move the n_cycle dimension to the end, for example with np.moveaxis
         """
 
-        has_entries = np.clip(np.sum(base_msa_mask, axis=-1), a_min=0, a_max=1)
-        odds = (has_entries - 1) * -1e2
-
-        if self.msa_shuffle_orders is None:
-            scores_shape = (self.n_recycling_iterations,) + odds.shape
-            scores = odds + torch.distributions.Gumbel(0, 1).sample(scores_shape).numpy()
-            msa_shuffle_orders = np.argsort(scores, axis=-1)
-        else:
-            msa_shuffle_orders = self.msa_shuffle_orders
-
-        msa_indices = msa_shuffle_orders[:, :self.msa_trunc_count]
-        msa_feat = base_msa_feat[msa_indices]
-        msa_mask = base_msa_mask[msa_indices]
-
-        msa_feat = np.moveaxis(msa_feat, 0, -1)
-        msa_mask = np.moveaxis(msa_mask, 0, -1)
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 
@@ -260,24 +209,8 @@ class AssembleMSAFeatures(Transform):
             - Assemble the MSAFeatures dataclass.
         """
 
-
-        msa_one_hot = F.one_hot(torch.tensor(msa), num_classes=32).numpy()
-        profile = utils.masked_mean(msa_one_hot, individual_msa_mask[..., None], axis=0)
-        deletion_mean = utils.masked_mean(deletion_count, individual_msa_mask, axis=0)
-        deletion_value = (2 / np.pi) * np.arctan(deletion_count / 3)
-
-        deletion_value = deletion_value[..., None]
-        has_deletion = np.clip(deletion_count, a_min=0, a_max=1, dtype=np.float32)[..., None]
-
-        full_msa_feat = np.concatenate([msa_one_hot, has_deletion, deletion_value], axis=-1)
-        msa_feat, msa_mask = self.sample_msa_features(full_msa_feat, full_msa_mask)
-        target_feat = self.calculate_target_feat(restype, profile, deletion_mean)
-
-        msa_features = MSAFeatures(
-            msa_feat.astype(np.float32),
-            msa_mask.astype(np.float32),
-            target_feat.astype(np.float32),
-        )
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 
@@ -303,19 +236,9 @@ class CalculateMSAFeatures(Transform):
           - HotfixAF3LigandAsGap (Transform defined above): For ligands, AF3 actually doesn't use their restype  token but the GAP token in the MSA (this affects only the first row). This transform does that substitution.
           - BuildMSAAndTargetFeat (Transform defined above): Samples the MSA features for the recycling iterations, and builds the target_feat
         """
-        transforms = [
-            LoadPolymerMSAs(
-                protein_msa_dirs=protein_msa_dirs,
-                rna_msa_dirs=rna_msa_dirs,
-                max_msa_sequences=max_msa_sequences,
-                use_paths_in_chain_info=True,
-            ),
-            HotfixDuplicateRowIfSingleMSA(max_msa_sequences=max_msa_sequences),
-            EncodeMSA(),
-            ConcatMSAs(max_msa_sequences=max_msa_sequences),
-            HotfixAF3LigandAsGap(),
-            AssembleMSAFeatures(msa_trunc_count, n_cycle, msa_shuffle_orders=msa_shuffle_orders)
-        ]
+
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """
 

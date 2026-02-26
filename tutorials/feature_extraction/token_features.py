@@ -25,7 +25,8 @@ def encode_restype(restype: np.ndarray[np.str_]) -> np.ndarray[int]:
     TODO: Map restype through the AF3_TOKENS_MAP dictionary to get the integer encoding. You can do so efficiently using np.vectorize.
     """
 
-    restype_encoding = np.vectorize(lambda x: AF3_TOKENS_MAP.get(x, AF3_TOKENS_MAP[UNKNOWN_AA]))(restype)
+    # Replace 'pass' with your code
+    pass
 
     """ End of your code """
 
@@ -120,52 +121,8 @@ class CalculateTokenFeatures(Transform):
         4. Build a TokenFeatures object with all the features
         """
 
-        token_starts = get_token_starts(atom_array)
-
-        token_array = atom_array[token_starts]
-
-        token_index = np.arange(len(token_array))
-        res_id = token_array.res_id
-
-        unique_entity_ids, entity_id = np.unique(token_array.pn_unit_entity, return_inverse=True)
-        _, asym_id = np.unique(token_array.pn_unit_iid, return_inverse=True)
-
-        sym_id = np.zeros_like(entity_id)
-
-        for entity in unique_entity_ids:
-            mask = entity_id == entity
-            _, sym_id_subset = np.unique(token_array.pn_unit_iid[mask], return_inverse=True)
-            sym_id[mask] = sym_id_subset
-
-
-        restype = encode_restype(token_array.res_name)
-
-        is_rna = np.isin(token_array.res_name, STANDARD_RNA +(UNKNOWN_RNA,))
-        is_dna = np.isin(token_array.res_name, STANDARD_DNA + (UNKNOWN_DNA,))
-        is_protein = np.isin(token_array.res_name, STANDARD_AA + (UNKNOWN_AA,))
-        is_ligand = ~(is_rna | is_dna | is_protein)
-
-
-        token_features = {
-            'residue_index': res_id,
-            'token_index': token_index + 1,
-            'asym_id': asym_id + 1,
-            'entity_id': entity_id + 1,
-            'sym_id': sym_id + 1,
-            'mask': np.ones(len(token_array), dtype=bool),
-            'restype': restype,
-
-            'is_rna': is_rna,
-            'is_dna': is_dna,
-            'is_protein': is_protein,
-            'is_ligand': is_ligand,
-        }
-
-        padded_token_count = utils.round_to_bucket(len(token_array))
-        for k, v in token_features.items():
-            token_features[k] = utils.pad_to_shape(v, (padded_token_count,))
-
-        token_features = TokenFeatures(**token_features)
+        # Replace 'pass' with your code
+        pass
 
         """ End of your code """ 
 

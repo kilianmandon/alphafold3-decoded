@@ -376,7 +376,7 @@ class TensorTrace:
 
             combined_max = np.minimum(da, 10*dr).max()
             if di.size > 0:
-                print(f'Comparison failed for test value {k}. Max absolute difference: {da_max:.2e}, max relative difference: {dr_max:.2e}, max combined difference: {combined_max:.2e}. First 10 differing indices: {di[:10]}')
+                print(f'Comparison failed for test value {k}. Max absolute difference: {da_max:.4e}, max relative difference: {dr_max:.4e}, max combined difference: {combined_max:.4e}. First 10 differing indices: {di[:10]}')
                 return False
         
         target_without_mask = {
