@@ -77,25 +77,23 @@ def convert_ipynb(src: Path, dst: Path, tutorials_root: Path):
     dst.write_text(json.dumps(nb, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"  [nb]  {src} → {dst}")
 
-    notebook_name = dst.stem
 
-    converted_path = tutorials_root / "converted_notebooks"
-    converted_path.mkdir(exist_ok=True)
 
+def convert_solution_notebooks(src: Path, solutions_root: Path):
+    dst = solutions_root / "converted_notebooks" / f'{src.stem}_notebook.py'
     subprocess.run([
-        "jupyter", "nbconvert",
-        "--to", "script",
-        str(dst),
-        "--output", f"{notebook_name}_notebook",
-        "--output-dir", str(converted_path)
-    ], check=True)
+        "jupyter", "nbconvert", 
+        "--to", "script", str(src),
+        "--output", dst.stem,
+        "--output-dir", str(dst.parent)
+    ])
 
-    # Remove %magic  commands from converted script, e.g. get_ipython().*
-    script_path = converted_path / f"{notebook_name}_notebook.py"
-    script_text = script_path.read_text(encoding="utf-8")
-    magic_pattern = re.compile(r'^\s*get_ipython\(\)\..*$')
+    script_text = dst.read_text(encoding="utf-8")
+    magic_pattern = re.compile(r'get_ipython\(\)\..*$', re.MULTILINE)
     script_text = magic_pattern.sub(lambda m: f'# {m.group(0)}  # removed by prepare_tutorials.py', script_text)
-    script_path.write_text(script_text, encoding="utf-8")
+    dst.write_text(script_text, encoding="utf-8")
+
+    print(f"  [nb→py] {src} → {dst}")
 
 
 
@@ -114,8 +112,16 @@ def main():
         print("Error: 'solutions/' directory not found. Run this script from the project root.")
         return
 
-    py_files  = list(solutions_root.glob("**/*.py"))
     nb_files  = list(solutions_root.glob("**/*.ipynb"))
+
+    # Transform nb_files to py_files within solutions folder
+    Path('solutions/converted_notebooks').mkdir(exist_ok=True)
+    Path('solutions/converted_notebooks/__init__.py').touch()  # make it a package
+    for src in nb_files:
+        convert_solution_notebooks(src, solutions_root)
+
+
+    py_files  = list(solutions_root.glob("**/*.py"))
 
     print(f"Found {len(py_files)} .py files and {len(nb_files)} .ipynb files.\n")
 
@@ -145,7 +151,7 @@ def main():
 
 
 if __name__ == "__main__":
-    if input("This will overwrite files in the 'tutorials/' directory. Do you want to proceed? (y/n) ").lower() == "y":
+    if input("WARNING! This will overwrite files in the 'tutorials/' directory, deleting all code you wrote there. The only case in which you'd want to do that is if you are preparing a new version of the tutorials, not if you are just solving them. Do you want to proceed? (y/n) ").lower() == "y":
         main()
     else:
         print("Aborted.")

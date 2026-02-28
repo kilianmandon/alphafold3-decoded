@@ -17,12 +17,20 @@ def pad_to_shape(data: Array , padded_shape, value=0):
     """
 
     padded = None
+    is_numpy = isinstance(data, np.ndarray)
+    data = torch.as_tensor(data)
 
     """
-    TODO: Implement  the padding. This should work with both numpy arrays and torch tensors, you can use isinstance(data, np.ndarray) to check which one it is. You can create the padded array using np.full or torch.full, and then fill in the value by creating an index of the form
-    (slice(0, dim_1), slice(0, dim_2), ...), then setting the data into the padded array using this index. If you are not familiar with this way of indexing, a tuple of slices is exactly what indexing of the form
+    TODO: Implement  the padding. In the output, the data should be in the top-left corner 
+    of the padded array (not in the center, as with image padding). 
+    You can create the padded array using torch.full, and then fill in the value by creating an index of the form
+        (slice(0, dim_1), slice(0, dim_2), ...), 
+    then setting the data into the padded array using this index. If you are not familiar 
+    with this way of indexing, a tuple of slices is exactly what indexing of the form
         arr[:dim_1, :dim_2, ...] 
-    creates internally. Using the function slice(...) explicitly is helpful when you want to create indices programmatically, for example if you don't know the number of dimensions in advance. 
+    creates internally. Using the function slice(...) explicitly is helpful when you want to create 
+    indices programmatically, for example if you don't know the number of dimensions in advance. 
+    Make sure you copy the dtype and device of the input data when creating the padded array!
     """
 
     # Replace 'pass' with your code
@@ -30,12 +38,16 @@ def pad_to_shape(data: Array , padded_shape, value=0):
 
     """ End of your code """
 
-    return padded
+    if is_numpy:
+        return padded.numpy()
+    else:
+        return padded
 
 
 def round_down_to(data: np.ndarray, rounding_target: np.ndarray, return_indices=False):
     """
-    Rounds the data values down to the closest value in rounding_target, optionally returning the indices of the selected values.
+    Rounds the data values down to the closest value in rounding_target, optionally returning 
+    the indices of the selected values.
 
     Args:
         data: numpy array of any shape
@@ -46,7 +58,12 @@ def round_down_to(data: np.ndarray, rounding_target: np.ndarray, return_indices=
     rounding_inds = None
 
     """
-    TODO: Implement the rounding procedure. You can unsqueeze data and do a broadcasted comparison to find which valus in rounding_target are smaller or equal to the values in data. We want the last value that satisfies this, or the first in the reversed rounding_target. To find the first index that fulfills this condition, you can use np.argmax on the broadcasted dimension, then calculate back to the index in the original array. These indices can be used as an integer index to get the rounded values from rounding_target. 
+    TODO: Implement the rounding procedure. You can unsqueeze data and do a broadcasted comparison to find 
+    which valus in rounding_target are smaller or equal to the values in data. We want the last value that 
+    satisfies this, or the first in the reversed rounding_target. To find the first index that fulfills 
+    this condition, you can use np.argmax on the broadcasted dimension, then calculate back to the index 
+    in the original array. These indices can be used as an integer index to get the rounded values 
+    from rounding_target. 
     """
 
     # Replace 'pass' with your code
@@ -97,7 +114,8 @@ def masked_mean(feat: Array, mask: Array, axis, keepdims=False):
     result = None
 
     """
-    TODO: Implement the masked mean function. This calculates the mean of feat along axis, but not dividing by the shape of the axis, but by the number of valid (non-masked) entries along that axis. If this number is zero, divide by 1e-10 instead.
+    TODO: Implement the masked mean function. This calculates the mean of feat along axis, but not dividing by the shape 
+    of the axis, but by the number of valid (non-masked) entries along that axis. If this number is zero, divide by 1e-10 instead.
     """
 
     # Replace 'pass' with your code
@@ -115,7 +133,10 @@ def rand_rot(batch_shape: tuple, device: torch.device):
     q = None
 
     """
-    TODO: Sample random rotation matrices of shape (**batch_shape, 3, 3). To do this, you can sample a random normal matrix, do a QR decomposition with torch.linalg.qr, then fix the sign of the determinant: Rotation matrices have determinant 1. You can compute the determinant of q with torch.linalg.det(q). For 3x3 matrices, we have det(-A) = -det(A), so we can flip the sign of q's determinant by flipping the sign of all values in q.
+    TODO: Sample random rotation matrices of shape (**batch_shape, 3, 3). To do this, you can sample a random normal matrix, 
+    do a QR decomposition with torch.linalg.qr, then fix the sign of the determinant: Rotation matrices have determinant 1. 
+    You can compute the determinant of q with torch.linalg.det(q). For 3x3 matrices, we have det(-A) = -det(A), so we can flip 
+    the sign of q's determinant by flipping the sign of all values in q.
     """
 
     # Replace 'pass' with your code
@@ -138,9 +159,6 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
 
 
 def load_alphafold_input(path):
-    print(f'Loading input from {str(path)}')
-    import os
-    print(f'cwd: {os.getcwd()}')
     with open(path, 'r') as f:
         data = json.load(f)
 

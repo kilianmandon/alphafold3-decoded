@@ -9,8 +9,15 @@ Setup is a bit more complex this time around. To prepare you for all the possibl
 - Clone this repository from your fork. Particularly if you are working on a remote machine, I suggest you use the SSH link from your GitHub page, so you can make commits via your SSH key.
 - Install the dependencies: `uv sync`
 - Activate the virtual environment: In your code editor, or manually using `source .venv/bin/activate`
-- Compute the test results: `python scripts/generate_test_results.py`, select the chapter you want to generate results for. You have to do this on your machine, so that the random generators work correctly (PyTorch is not deterministic over different machines).
-- Set the Jupyter Root: In VSCode, go to Settings > Jupyter: Notebook File Root, and set it to `${workspaceFolder}/tutorials`. This makes sure that the `tutorials` folder is on your python path, and that the local files in `data/` are available. 
+- Compute the test results: `python scripts/generate_test_results.py`, select the chapter you want to generate results for. For the first tutorial, select (1): feature_extraction. You have to do this on your machine, so that the random generators work correctly (PyTorch is not deterministic over different machines). Warnings like these are expected and can be ignored, they arise from the dependencies:
+  ```
+  ... 
+  No suitable coordinates found for '...' among preferences ('ideal_pdbx', 'model', 'ideal_rdkit'). Coordinates will be 'nan'.
+  ...
+  DeprecationWarning: This process (pid=81924) is multi-threaded, use of fork() may lead to deadlocks in the child.
+  ...
+  ```
+- Set the Jupyter Root: In VSCode, go to Settings. There, search for 'Jupyter: Notebook File Root', and set it to `${workspaceFolder}/tutorials`. This makes sure that the `tutorials` folder is on your python path, and that the local files in `data/` are available. 
 
 > **Note**: If you already started the series before I completed it, you should add the original upstream repository to your Git:
 
@@ -46,6 +53,21 @@ pass
 """ End of your code """
 ```
 and you will be replacing 'pass' with your code. 
+
+## Common Issues
+If you encounter import errors, it is likely that your python path is not set up correctly. The code is supposed to run in the following way:
+- The Jupyter Notebooks: All paths and imports should be relative to the 'tutorials' folder. In VSCode, you can set this by changing the setting 'Jupyter: Notebook File Root' to `${workspaceFolder}/tutorials`. You can also manually modify the system path in python, however, this won't automatically fix data dependencies, which are relative to the tutorials folder (even the `data/` folder, which is a symlink to the root `data/` folder).
+- Setup scripts in `scripts/`: These should be run from the root of the repository. `generate_test_results.py` will internally cd to the `solutions` folder and run the solutions as python modules relative to that.
+- Converted notebooks in `tutorials/converted_notebooks/`: If you want to use these instead of the Jupyter Notebooks for your tests, you should run them as python modules from the tutorials folder, e.g. `cd tutorials && python -m converted_notebooks.feature_extraction_notebook`. If you want to run them through the debugger, make sure to create a configuration that runs it as a module and with tutorials as the working directory. In VSCode, you can use the following launch.json configuration for this:
+```json
+{
+    "name": "Python Debugger: Feature Extraction",
+    "type": "debugpy",
+    "request": "launch",
+    "module": "converted_notebooks.feature_extraction_notebook",
+    "cwd": "${workspaceFolder}/tutorials"
+}
+```
 
 ## Current State
 | Chapter | Code | Video |

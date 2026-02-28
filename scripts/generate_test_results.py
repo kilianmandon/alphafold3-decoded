@@ -19,27 +19,15 @@ def main():
     chapter = chapters[chapter_idx]
 
     solutions_dir = Path('solutions')
-    ipynb_path = solutions_dir / f'{chapter}/{chapter}.ipynb'
 
-    print('Converting ipynb to script...')
-    subprocess.run([
-        'jupyter', 'nbconvert', 
-        '--to', 'script', str(ipynb_path),
-        '--output', f'{chapter}_notebook',
-        '--output-dir', str(solutions_dir/"converted_notebooks")
-        ] )
-
-    # Remove %magic  commands from converted script
-    script_path = solutions_dir / "converted_notebooks" / f"{chapter}_notebook.py"
-    script_text = script_path.read_text(encoding="utf-8")
-    magic_pattern = re.compile(r'get_ipython\(\)\..*$', re.MULTILINE)
-    script_text = magic_pattern.sub(lambda m: f'# {m.group(0)}  # removed by prepare_tutorials.py', script_text)
-    script_path.write_text(script_text, encoding="utf-8")
+    if not (solutions_dir / 'converted_notebooks' / f'{chapter}_notebook.py').exists():
+        print(f'Chapter {chapter} is not yet available.')
+        return
 
     print('Executing script to generate test results...')
 
     subprocess.run([
-        "python", str(script_path.absolute())
+        "python", "-m", f"converted_notebooks.{chapter}_notebook"
     ], cwd=solutions_dir)
 
 if __name__ == '__main__':  

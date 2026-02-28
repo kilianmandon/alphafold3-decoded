@@ -22,7 +22,8 @@ def encode_restype(restype: np.ndarray[np.str_]) -> np.ndarray[int]:
 
     restype_encoding = None
     """
-    TODO: Map restype through the AF3_TOKENS_MAP dictionary to get the integer encoding. You can do so efficiently using np.vectorize.
+    TODO: Map restype through the AF3_TOKENS_MAP dictionary to get the integer encoding. 
+    You can do so efficiently using np.vectorize.
     """
 
     restype_encoding = np.vectorize(lambda x: AF3_TOKENS_MAP.get(x, AF3_TOKENS_MAP[UNKNOWN_AA]))(restype)
@@ -76,7 +77,10 @@ class TokenFeatures:
         block_mask = None
 
         """ 
-        TODO in Chapter 2 (Input Embedding): Create a block mask which that masks out keys that should not be attended, e.g. where self.mask is 0. For that, implement a function block_mask with signature (b, h, q, k) -> bool and use it in create_block_mask to build the block mask. You an use utils.unify_batch_dimension to unify the mask of shape (**batch_shape, n_tokens) to shape (batch_size, n_tokens).
+        TODO in Chapter 2 (Input Embedding): Create a block mask which that masks out keys that should not be attended, 
+        e.g. where self.mask is 0. For that, implement a function block_mask with signature (b, h, q, k) -> bool 
+        and use it in create_block_mask to build the block mask. You an use utils.unify_batch_dimension to unify 
+        the mask of shape (**batch_shape, n_tokens) to shape (batch_size, n_tokens).
         """
 
         mask = utils.unify_batch_dimension(self.mask, self.mask.shape[:-1])
@@ -106,17 +110,22 @@ class CalculateTokenFeatures(Transform):
         TODO: Build a TokenFeatures object based on atom_array. The four basic steps are:
         1. Get token-level atom array using get_token_starts and indexing with these into atom_array 
         2. Extract the information from the token-level features:
-            - Note: token_index, asym_id, entity_id, sym_id all start at 1 in AF3, so be sure to add 1 to the respective features
+            - Note: token_index, asym_id, entity_id, sym_id all start at 1 in AF3, so be sure to add 1 
+                to the respective features
             - residue_index: directly accessible as atom_arary.res_id
             - token_index: just a range(n_tokens) + 1
-            - asym_id: you can use np.unique(..., return_inverse=True) to get labels 0, ..., n_chain-1 for each unique chain identifier based on atom_array.pn_unit_iid
+            - asym_id: you can use np.unique(..., return_inverse=True) to get labels 0, ..., n_chain-1 for each 
+                unique chain identifier based on atom_array.pn_unit_iid
             - entity_id: same as asym_id but based on atom_array.pn_unit_entity
-            - sym_id: iterate over the entity_ids, use the same procedure as for asym_id but on the masked atom array [entity_id == current_entity_id]
+            - sym_id: iterate over the entity_ids, use the same procedure as for asym_id but on the masked 
+                atom array [entity_id == current_entity_id]
             - restype: obtained from token_array.res_name using encode_restype
-            - is_rna, is_dna, is_protein: from token_array.res_name, using np.isin and the constants STANARD_RNA, STANDARD_DNA, STANDARD_AA, UNKNOWN_RNA, UNKNOWN_DNA, UNKNOWN_AA
+            - is_rna, is_dna, is_protein: from token_array.res_name, using np.isin and the constants STANARD_RNA, 
+                STANDARD_DNA, STANDARD_AA, UNKNOWN_RNA, UNKNOWN_DNA, UNKNOWN_AA
             - is_ligand: inverse of the union of the three previous arrays
             - mask: ones like residue_index
-        3. Padding: Calculate the padded token count from the actual token count using round_to_bucket, pad all features using utils.pad_to_shape
+        3. Padding: Calculate the padded token count from the actual token count using round_to_bucket, 
+            pad all features using utils.pad_to_shape
         4. Build a TokenFeatures object with all the features
         """
 
