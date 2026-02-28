@@ -155,7 +155,6 @@ class DiffusionSampler(nn.Module):
 
     def forward(self, diffusion_module, s_inputs, s_trunk, z_trunk, rel_enc, batch: Batch, noise_data=None):
         ref_struct = batch.ref_struct
-        # q2k_mask has shape (**batch_shape, N_block, 32,)
         batch_shape = s_trunk.shape[:-2]
         device = s_trunk.device
         

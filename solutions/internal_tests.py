@@ -1,8 +1,8 @@
 import time
 import torch
-from common.utils import load_alphafold_input
+from common.utils import load_alphafold_input, rand_rot
 from config import Config
-from feature_extraction.feature_extraction import Batch, custom_af3_pipeline, tree_map
+from feature_extraction.feature_extraction import Batch, custom_af3_pipeline, tree_map, collate_batch
 from diffusion.model import Model
 import tensortrace as ttr
 
@@ -145,6 +145,78 @@ def main(test_name):
     diff_x = batch.ref_struct.to_token_layout(diff_x)
 
     ttr.compare(diff_x, 'diffusion/final_positions', processing=[indexing(0), hotfix_roll_inv])
+
+def batch_test():
+    test1 = 'lysozyme'
+    test2 = 'multimer'
+
+    config = Config()
+    config.global_config.n_cycle = 2
+    config.diffusion_config.denoising_steps = 4
+
+    model = Model(config)
+    params = torch.load('data/params/af3_pytorch.pt')
+    model.load_state_dict(params)
+
+    t1 = time.time()
+    transform = custom_af3_pipeline(config)
+
+    data1 = load_alphafold_input(f'data/fold_inputs/fold_input_{test1}.json')
+    data2 = load_alphafold_input(f'data/fold_inputs/fold_input_{test2}.json')
+    b1 = transform.forward(data1)['batch']
+    b2 = transform.forward(data2)['batch']
+
+    def gen_diff_noise(batch: Batch):
+        diffusion_randomness = {
+            'init_pos': torch.randn(batch.ref_struct.atom_count, 3),
+            'noise': torch.randn(config.diffusion_config.denoising_steps, batch.ref_struct.atom_count, 3),
+            'aug_rot': rand_rot((config.diffusion_config.denoising_steps,), device=batch.ref_struct.positions.device),
+            'aug_trans': torch.randn(config.diffusion_config.denoising_steps, 3),
+        }
+
+        return diffusion_randomness
+
+    n1 = gen_diff_noise(b1)
+    n2 = gen_diff_noise(b2)
+
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+
+    b1: Batch = tree_map(lambda x: x.to(device=device), b1)
+    b2: Batch = tree_map(lambda x: x.to(device=device), b2)
+    n1 = tree_map(lambda x: x.to(device=device), n1)
+    n2 = tree_map(lambda x: x.to(device=device), n2)
+
+    model = model.to(device=device)
+    model.eval()
+
+    def model_fwd(model, data, noise):
+        s_input, s_trunk, z_trunk, rel_enc = model.evoformer(data)
+        out = model.diffusion_sampler(model.diffusion_module,
+                                s_input, s_trunk, z_trunk, rel_enc, 
+                                data, noise_data=noise)
+        return out
+
+    out1 = model_fwd(model, b1, n1)
+    out2 = model_fwd(model, b2, n2)
+
+    b_joined = collate_batch([n1, n2])
+    noise_joined = collate_batch([n1, n2])
+    noise_joined['noise'] = torch.moveaxis(noise_joined['noise'], 0, 1)
+    noise_joined['aug_rot'] = torch.moveaxis(noise_joined['aug_rot'], 0, 1)
+    noise_joined['aug_trans'] = torch.moveaxis(noise_joined['aug_trans'], 0, 1)
+
+    out_joined = model_fwd(model, b_joined, noise_joined)
+
+    out_single_joined = collate_batch([out1, out2])
+
+    da = torch.abs(out_joined - out_single_joined)
+    print(da.max())
+    ...
+
+
 
 
 if __name__=='__main__':
