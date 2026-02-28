@@ -5,6 +5,10 @@ from config import Config
 from feature_extraction.feature_extraction import Batch, custom_af3_pipeline, tree_map, collate_batch
 from diffusion.model import Model
 import tensortrace as ttr
+import os
+# Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
+os.environ["PDB_MIRROR_PATH"] = ""
+os.environ["CCD_MIRROR_PATH"] = ""
 
 
 def reorder_encoding(dim=-1, offset=0):
@@ -163,8 +167,12 @@ def batch_test():
 
     data1 = load_alphafold_input(f'data/fold_inputs/fold_input_{test1}.json')
     data2 = load_alphafold_input(f'data/fold_inputs/fold_input_{test2}.json')
+    torch.cuda.nvtx.range_push('Featurization 1')
     b1 = transform.forward(data1)['batch']
+    torch.cuda.nvtx.range_pop()
+    torch.cuda.nvtx.range_push('Featurization 2')
     b2 = transform.forward(data2)['batch']
+    torch.cuda.nvtx.range_pop()
 
     def gen_diff_noise(batch: Batch):
         diffusion_randomness = {
@@ -199,20 +207,39 @@ def batch_test():
                                 data, noise_data=noise)
         return out
 
-    out1 = model_fwd(model, b1, n1)
-    out2 = model_fwd(model, b2, n2)
+    torch.cuda.memory._record_memory_history(
+       max_entries=100000
+   )
 
-    b_joined = collate_batch([n1, n2])
+    b_joined = collate_batch([b1, b2])
     noise_joined = collate_batch([n1, n2])
+    # n11 = tree_map(lambda x: x[0], noise_joined)
     noise_joined['noise'] = torch.moveaxis(noise_joined['noise'], 0, 1)
     noise_joined['aug_rot'] = torch.moveaxis(noise_joined['aug_rot'], 0, 1)
     noise_joined['aug_trans'] = torch.moveaxis(noise_joined['aug_trans'], 0, 1)
 
+    out1 = model_fwd(model, b1, n1)
+    b11 = tree_map(lambda x: x[0], collate_batch([b1, b2]))
+    # out11 = model_fwd(model, b11, n11)
+
+    out2 = model_fwd(model, b2, n2)
+
+
     out_joined = model_fwd(model, b_joined, noise_joined)
 
+    try:
+        torch.cuda.memory._dump_snapshot(f"mem_profile.pickle")
+    except Exception as e:
+        print(f"Failed to capture memory snapshot {e}")
+
+    # Stop recording memory snapshot history.
+    torch.cuda.memory._record_memory_history(enabled=None)
+
     out_single_joined = collate_batch([out1, out2])
+    mask = b_joined.ref_struct.mask
 
     da = torch.abs(out_joined - out_single_joined)
+    da = da * mask.unsqueeze(-1)
     print(da.max())
     ...
 
@@ -220,6 +247,8 @@ def batch_test():
 
 
 if __name__=='__main__':
-    test_name = 'lysozyme'
-    with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
-        main(test_name)
+    # test_name = 'lysozyme'
+    # with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
+    #     main(test_name)
+    with torch.no_grad():
+        batch_test()

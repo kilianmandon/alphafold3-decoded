@@ -59,6 +59,7 @@ class Evoformer(nn.Module):
         prev_z = torch.zeros(batch_shape+(N_token, N_token, c_z), device=device, dtype=torch.float32)
 
         for i in tqdm.tqdm(range(self.n_cycle)):
+            torch.cuda.nvtx.range_push(f'Evoformer {i}')
             sub_batch = copy.deepcopy(batch)
             sub_batch.msa_features.msa_feat = sub_batch.msa_features.msa_feat[..., i]
             sub_batch.msa_features.msa_mask = sub_batch.msa_features.msa_mask[..., i]
@@ -71,6 +72,7 @@ class Evoformer(nn.Module):
 
             s, z = self.pairformer(s, z, token_features)
             prev_s, prev_z = s, z
+            torch.cuda.nvtx.range_pop()
 
         return s_input, s, z, rel_feat
 
@@ -135,9 +137,14 @@ class OuterProductMean(nn.Module):
         m_a = self.linear_a(m) * msa_mask[..., None]
         m_b = self.linear_b(m) * msa_mask[..., None]
 
-        ab = torch.einsum('...sic,...sjd->...ijcd', m_a, m_b)
-        ab = ab.flatten(start_dim=-2)
-        z = self.linear_out(ab)
+        z_chunks = []
+        for m_a_chunk in torch.split(m_a, 32, dim=-2):
+            ab_chunk = torch.einsum('...sic,...sjd->...ijcd', m_a_chunk, m_b)
+            ab_chunk = ab_chunk.flatten(start_dim=-2)
+            z_chunk = self.linear_out(ab_chunk)
+            z_chunks.append(z_chunk)
+
+        z = torch.cat(z_chunks, dim=-3)
 
         norm = torch.einsum('...si,...sj->...ij', msa_mask, msa_mask)
         z = z / (norm[..., None] + 1e-3)
@@ -226,7 +233,7 @@ class TriangleAttention(nn.Module):
         self.starting_node = starting_node
 
         if torch.cuda.is_available():
-            self.flex_attention = torch.compile(flex_attention)
+            self.flex_attention = torch.compile(flex_attention, dynamic=True)
         else:
             self.flex_attention = flex_attention
 
@@ -265,6 +272,7 @@ class TriangleAttention(nn.Module):
 
         q = torch.flatten(q, end_dim=-4)
         k = torch.flatten(k, end_dim=-4)
+        v = torch.flatten(v, end_dim=-4)
         bias = torch.flatten(bias, end_dim=-4)
 
         def bias_score_mod(score, b, h, q_idx, kv_idx):
@@ -370,7 +378,7 @@ class MSAModule(nn.Module):
         msa_mask = batch.msa_features.msa_mask
         single_mask = batch.token_features.mask
         m = self.linear_m(msa_feat)
-        m += self.linear_s(s_input)
+        m += self.linear_s(s_input)[..., None, :, :]
 
         for block in self.blocks:
             m, z = block(m, z, msa_mask, single_mask)

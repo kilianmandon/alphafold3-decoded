@@ -61,7 +61,7 @@ class AtomAttentionEncoder(nn.Module):
         ref_space_uid = ref_struct.ref_space_uid
         ref_pos = ref_struct.positions
         block_mask = ref_struct.block_mask
-        batch_shape = ref_space_uid.shape[:-2]
+        batch_shape = ref_space_uid.shape[:-1]
 
         single_cond = self.per_atom_cond(ref_struct)
 
@@ -87,12 +87,12 @@ class AtomAttentionEncoder(nn.Module):
         if self.use_trunk:
             s_trunk = ref_struct.to_atom_layout(s_trunk, has_atom_dimension=False)
 
-            batch_idx, p_idx, l_idx = BlockSparseTensor.block_mask_to_index(block_mask)
+            batch_idx, p_idx, l_idx = pair_act.inverse_lookup_indices
             token_indices = utils.unify_batch_dimension(ref_struct.token_index, batch_shape)
             z = utils.unify_batch_dimension(z, batch_shape)
             i_idx = token_indices[batch_idx, p_idx]
             j_idx = token_indices[batch_idx, l_idx]
-            z = BlockSparseTensor(z[batch_idx, i_idx, j_idx], block_mask)
+            z = pair_act._wrap(z[batch_idx, i_idx, j_idx])
 
             single_cond += self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
             pair_act += self.trunk_linear_z(self.trunk_layer_norm_z(z))

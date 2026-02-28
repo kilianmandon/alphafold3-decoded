@@ -118,7 +118,7 @@ class DiffusionConditioning(nn.Module):
 
 
 def apply_layernorm_masked(inp, layer_norm, mask):
-    masked_inp = inp[:, mask]
+    masked_inp = inp[..., mask]
     # masked_mean, masked_var = masked_inp.mean(-1, keepdim=True), masked_inp.var(-1, keepdim=True)
     # return (inp - masked_mean) / torch.sqrt(masked_var + layer_norm.eps) * layer_norm.weight
     fake_layernorm = nn.LayerNorm((masked_inp.shape[-1],), eps=layer_norm.eps, bias=False)
@@ -126,7 +126,7 @@ def apply_layernorm_masked(inp, layer_norm, mask):
     fake_layernorm.to(inp.device, dtype=inp.dtype)
     masked_out = fake_layernorm(masked_inp)
     full_out = torch.zeros_like(inp)
-    full_out[:, mask] = masked_out
+    full_out[..., mask] = masked_out
     return full_out
 
 
@@ -210,7 +210,7 @@ class CenterRandomAugmentation(nn.Module):
             rand_rot = utils.rand_rot(batch_shape, device=device)
             rand_trans = self.s_trans * torch.randn(batch_shape+(1,3), device=device)
 
-        x = torch.einsum('ji,...j->...i', rand_rot, x) + rand_trans
+        x = torch.einsum('...ji,...nj->...ni', rand_rot, x) + rand_trans[..., None, :]
 
         return x
 

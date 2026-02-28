@@ -186,7 +186,7 @@ class RefStructFeatures:
         The block_mask is cached, so that it isn't recomputed on reevaluation.
         """
 
-        batch_shape = self.mask.shape[:-2]
+        batch_shape = self.mask.shape[:-1]
         batch_size = math.prod(batch_shape) 
         # self.atom_count is a single number, since all inputs in a batch are padded to the same atom count
         n_blocks = self.atom_count // 32
