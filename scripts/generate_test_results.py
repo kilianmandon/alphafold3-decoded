@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 def main():
     chapters = [
@@ -27,7 +28,7 @@ def main():
     print('Executing script to generate test results...')
 
     subprocess.run([
-        "python", "-m", f"converted_notebooks.{chapter}_notebook"
+        sys.executable, "-m", f"converted_notebooks.{chapter}_notebook"
     ], cwd=solutions_dir)
 
 if __name__ == '__main__':  

@@ -1,15 +1,16 @@
 # AlphaFold 3 Decoded
 This repository guides you through doing a full implementation on AlphaFold 3 yourself. I'm creating an accompanying YouTube series that will be released soon. 
 
+
 ## Setup
 Setup is a bit more complex this time around. To prepare you for all the possible things you want to do within this repo, including potential cloud training on remote instances, I recommend you go through the following steps:
-- Setup SSH access to GitHub: Explained on the [GitHub manual pages](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent). This allows you to make modifications to your GitHub repo from remote machines, without having to copy your credentials to them.
+- Install Git [[link]](https://git-scm.com/install/), and the package manager uv [[link]](https://docs.astral.sh/uv/getting-started/installation/). Development on Windows can be a bit tricky, so I recommend using WSL instead if you are on Windows.
+- Setup SSH access to GitHub: Explained on the [GitHub manual pages](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent). This allows you to make modifications to your GitHub repo from remote machines, without having to copy your credentials to them. You need an authentication key, not a signing key.
 - Fork this Repository: This way, you can use Git for version control yourself, which makes it easy to get your code from and to remote machines.
-- Install the package manager uv. Instructions can be found on the [uv website](https://docs.astral.sh/uv/getting-started/installation/).
-- Clone this repository from your fork. Particularly if you are working on a remote machine, I suggest you use the SSH link from your GitHub page, so you can make commits via your SSH key.
-- Install the dependencies: `uv sync`
+- Clone this repository from your fork. Particularly if you are working on a remote machine, I suggest you use the SSH link instead of the HTTPS link, so you can make commits via your SSH key.
+- Install the dependencies: `uv sync`. If this fails, it might be because you need build tools for some of the dependencies. On Ubuntu, you can install these with `sudo apt install build-essential`, on MacOS with `xcode-select --install`, and on Windows you can install the [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools), but I would suggest to use a WSL on Windows instead.
 - Activate the virtual environment: In your code editor, or manually using `source .venv/bin/activate`
-- Compute the test results: `python scripts/generate_test_results.py`, select the chapter you want to generate results for. For the first tutorial, select (1): feature_extraction. You have to do this on your machine, so that the random generators work correctly (PyTorch is not deterministic over different machines). Warnings like these are expected and can be ignored, they arise from the dependencies:
+- Compute the test results: Run `python scripts/generate_test_results.py`, and select the chapter you want to generate results for. For the first tutorial, select (1): feature_extraction. You have to do this on your machine, so that the random generators work correctly (PyTorch is not deterministic over different machines). Warnings like these are expected and can be ignored, they arise from the dependencies:
   ```
   ... 
   No suitable coordinates found for '...' among preferences ('ideal_pdbx', 'model', 'ideal_rdkit'). Coordinates will be 'nan'.

@@ -12,13 +12,15 @@
 # 
 # In our implementation, we will be using atomworks for the input pipeline, a toolkit by the bakerlab for working with biological data. Its prime object is the AtomArray, which is basically a set of numpy arrays of shape (n_atoms,) encoding various properties: `atom_array.charge[i]` would give the charge of the i-th atom, as would `atom_array[i].charge`.  
 # 
-# All imports are relative to the tutorials folder. Make sure that the tutorials folder is on the system path (output of the next cell). If not, you can add it to the VSCode settings under Jupyter: Notebook File Root. Alternatively, you can manually add it to the system path in python.
+# All imports are relative to the tutorials folder. Make sure that the tutorials folder is on the system path (output of the next cell). If not, you can add it to the VSCode settings under Jupyter: Notebook File Root. Alternatively, you can manually add it to the system path in python. Note that, if the cwd is 'tutorials', having `''` in the system path is enough to import from the tutorials folder.
 
-# In[ ]:
+# In[1]:
 
 
 import sys
-sys.path
+import os
+
+os.getcwd(), sys.path
 
 # Manually add the folder:
 # sys.path.append('path/to/alphafold3-decoded/tutorials)
@@ -31,8 +33,8 @@ sys.path
 
 import os
 # Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
-os.environ["PDB_MIRROR_PATH"] = "data/datasets/pdb_mirror"
-os.environ["CCD_MIRROR_PATH"] = "data/datasets/ccd_mirror"
+os.environ["PDB_MIRROR_PATH"] = ""
+os.environ["CCD_MIRROR_PATH"] = ""
 
 import numpy as np
 import torch
