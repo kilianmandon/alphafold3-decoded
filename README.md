@@ -4,8 +4,19 @@ This repository guides you through doing a full implementation on AlphaFold 3 yo
 
 ## Setup
 Setup is a bit more complex this time around. To prepare you for all the possible things you want to do within this repo, including potential cloud training on remote instances, I recommend you go through the following steps:
-- For Windows Users: Install WSL [[link]](https://code.visualstudio.com/docs/remote/wsl). As of now, Conformer generation through Atomworks is not working on Windows without WSL. Make sure you are working within WSL when you are working on the notebooks and executing the scripts.
-- Install Git [[link]](https://git-scm.com/install/), and the package manager uv [[link]](https://docs.astral.sh/uv/getting-started/installation/)
+- For Windows Users: Install WSL [[link]](https://code.visualstudio.com/docs/remote/wsl). As of now, Conformer generation through Atomworks is not working on Windows without WSL. Make sure you are working within WSL when you are working on the notebooks and executing the scripts. With WSL setup, follow the 'For Linux' steps for the rest of the setup.
+- Install Git, Devtools, and the package manager UV:
+  ```
+  # For MacOS:
+  xcode-select --install
+  brew install git 
+  curl -LsSf https://astral.sh/uv/install.sh | sh 
+  ```
+  ```
+  # For Linux:
+  sudo apt install -y build-essential python3-dev git
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
 - Setup SSH access to GitHub: Explained on the [GitHub manual pages](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent). This allows you to make modifications to your GitHub repo from remote machines, without having to copy your credentials to them. You need an authentication key, not a signing key.
 - Fork this Repository: This way, you can use Git for version control yourself, which makes it easy to get your code from and to remote machines.
 - Clone this repository from your fork. Particularly if you are working on a remote machine, I suggest you use the SSH link instead of the HTTPS link, so you can make commits via your SSH key.
