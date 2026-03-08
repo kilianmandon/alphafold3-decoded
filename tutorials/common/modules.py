@@ -61,7 +61,7 @@ class AttentionPairBias(nn.Module):
         self.linear_out = nn.Linear(c*n_head, c_a, bias=False)
 
         if torch.cuda.is_available():
-            self.flex_attention = torch.compile(flex_attention)
+            self.flex_attention = torch.compile(flex_attention, dynamic=True)
         else:
             self.flex_attention = flex_attention
 

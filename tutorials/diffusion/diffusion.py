@@ -5,7 +5,7 @@ import tqdm
 from config import Config
 from input_embedding.atom_attention import AtomAttentionDecoder, AtomAttentionEncoder
 from feature_extraction.feature_extraction import Batch
-from feature_extraction.ref_struct_features import RefStructFeatures
+from feature_extraction.reference_features import ReferenceFeatures
 
 from common.modules import Transition, DiffusionTransformer
 import common.utils as utils
@@ -42,13 +42,13 @@ class DiffusionModule(nn.Module):
         # x_noisy has shape (**batch_shape, N_blocks, 32, 3)
         # t_hat has shape (**batch_shape, )
 
-        ref_struct = batch.ref_struct
+        reference_features = batch.reference_features
         token_features = batch.token_features
         s, z = self.diffusion_conditioning(t_hat, s_inputs, s_trunk, z_trunk, rel_enc)
         r=x_noisy / torch.sqrt(t_hat**2+self.sigma_data**2)[..., None, None]
 
 
-        a, (q_skip, c_skip, p_skip) = self.atom_att_enc(ref_struct, r=r, s_trunk=s_trunk, z=z)
+        a, (q_skip, c_skip, p_skip) = self.atom_att_enc(reference_features, r=r, s_trunk=s_trunk, z=z)
 
 
         a += self.linear_s(self.layer_norm_s(s))
@@ -56,7 +56,7 @@ class DiffusionModule(nn.Module):
 
         a = self.layer_norm_a(a)
 
-        r_update = self.atom_att_dec.forward(a, q_skip, c_skip, p_skip, ref_struct)
+        r_update = self.atom_att_dec.forward(a, q_skip, c_skip, p_skip, reference_features)
 
         d_skip = self.sigma_data**2 / (self.sigma_data**2+t_hat**2)
         d_scale = self.sigma_data * t_hat / torch.sqrt(self.sigma_data**2 + t_hat**2)
@@ -118,7 +118,7 @@ class DiffusionConditioning(nn.Module):
 
 
 def apply_layernorm_masked(inp, layer_norm, mask):
-    masked_inp = inp[:, mask]
+    masked_inp = inp[..., mask]
     # masked_mean, masked_var = masked_inp.mean(-1, keepdim=True), masked_inp.var(-1, keepdim=True)
     # return (inp - masked_mean) / torch.sqrt(masked_var + layer_norm.eps) * layer_norm.weight
     fake_layernorm = nn.LayerNorm((masked_inp.shape[-1],), eps=layer_norm.eps, bias=False)
@@ -126,7 +126,7 @@ def apply_layernorm_masked(inp, layer_norm, mask):
     fake_layernorm.to(inp.device, dtype=inp.dtype)
     masked_out = fake_layernorm(masked_inp)
     full_out = torch.zeros_like(inp)
-    full_out[:, mask] = masked_out
+    full_out[..., mask] = masked_out
     return full_out
 
 
@@ -154,13 +154,12 @@ class DiffusionSampler(nn.Module):
         return self.sigma_data * (self.s_max ** (1/self.rho) + t * (self.s_min**(1/self.rho) - self.s_max**(1/self.rho))) ** self.rho
 
     def forward(self, diffusion_module, s_inputs, s_trunk, z_trunk, rel_enc, batch: Batch, noise_data=None):
-        ref_struct = batch.ref_struct
-        # q2k_mask has shape (**batch_shape, N_block, 32,)
+        reference_features = batch.reference_features
         batch_shape = s_trunk.shape[:-2]
         device = s_trunk.device
         
         noise_levels = self.noise_schedule(torch.linspace(0, 1, self.denoising_steps+1, device=device))
-        x_shape = batch_shape + (ref_struct.atom_count, 3)
+        x_shape = batch_shape + (reference_features.atom_count, 3)
 
         if noise_data is not None:
             x = noise_levels[0] * noise_data['init_pos'].to(dtype=torch.float32)
@@ -175,7 +174,7 @@ class DiffusionSampler(nn.Module):
             else:
                 rand_rot = rand_trans = None
 
-            x = self.center_random_aug(x, ref_struct, rand_rot=rand_rot, rand_trans=rand_trans)
+            x = self.center_random_aug(x, reference_features, rand_rot=rand_rot, rand_trans=rand_trans)
 
             gamma = self.gamma_0 if c > self.gamma_min else 0
             t_hat = c_prev * (gamma + 1)
@@ -200,18 +199,18 @@ class CenterRandomAugmentation(nn.Module):
         super().__init__()
         self.s_trans = s_trans
 
-    def forward(self, x, ref_struct: RefStructFeatures, rand_rot=None, rand_trans=None):
+    def forward(self, x, reference_features: ReferenceFeatures, rand_rot=None, rand_trans=None):
         # x has shape (**batch_dims, N_atoms, 3)
         device = x.device
         batch_shape = x.shape[:-2]
 
-        x = x - utils.masked_mean(x, ref_struct.mask[..., None], axis=(-2), keepdims=True)
+        x = x - utils.masked_mean(x, reference_features.mask[..., None], axis=(-2), keepdims=True)
 
         if rand_rot is None:
             rand_rot = utils.rand_rot(batch_shape, device=device)
             rand_trans = self.s_trans * torch.randn(batch_shape+(1,3), device=device)
 
-        x = torch.einsum('ji,...j->...i', rand_rot, x) + rand_trans
+        x = torch.einsum('...ji,...nj->...ni', rand_rot, x) + rand_trans[..., None, :]
 
         return x
 

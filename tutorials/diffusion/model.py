@@ -13,10 +13,10 @@ class Model(nn.Module):
         self.diffusion_sampler = DiffusionSampler(config)
 
     def forward(self, batch: Batch):
-        s_input, s_trunk, z_trunk, rel_enc = self.evoformer(batch)
+        s_input, s_trunk, z_trunk, rel_feat = self.evoformer(batch)
 
         x_flat = self.diffusion_sampler(self.diffusion_module,
-                            s_input, s_trunk, z_trunk, rel_enc, batch)
+                            s_input, s_trunk, z_trunk, rel_feat, batch)
 
 
         return x_flat

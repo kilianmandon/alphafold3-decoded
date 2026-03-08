@@ -164,7 +164,7 @@ class ConcatMSAs(Transform):
         return data
 
 
-class AssembleMSAFeatures(Transform):
+class BuildMSAFeatures(Transform):
     def __init__(
         self, msa_trunc_count, n_recycling_iterations, msa_shuffle_orders=None
     ):
@@ -267,7 +267,7 @@ class AssembleMSAFeatures(Transform):
         return data
 
 
-class CalculateMSAFeatures(Transform):
+class BuildMSAFeaturePipeline(Transform):
     def __init__(
         self,
         max_msa_sequences,
@@ -294,7 +294,7 @@ class CalculateMSAFeatures(Transform):
               for the remaining features.
           - HotfixAF3LigandAsGap (Transform defined above): For ligands, AF3 actually doesn't use their restype token 
               but the GAP token in the MSA (this affects only the first row). This transform does that substitution.
-          - BuildMSAAndTargetFeat (Transform defined above): Samples the MSA features for the recycling iterations, 
+          - BuildMSAFeatures (Transform defined above): Samples the MSA features for the recycling iterations, 
               and builds the target_feat.
         """
 

@@ -1,14 +1,14 @@
 import torch
 from torch import nn
 from config import AtomAttentionConfig
-from feature_extraction.ref_struct_features import RefStructFeatures
+from feature_extraction.reference_features import ReferenceFeatures
 from common.block_sparse_tensor import BlockSparseTensor
 from common.modules import DiffusionTransformer
 
 import common.utils as utils
 
-def hotfix_mangle_layout(ref_space_uid, ref_struct: RefStructFeatures):
-    ref_space_uid = ref_struct.to_token_layout(ref_space_uid)
+def hotfix_mangle_layout(ref_space_uid, reference_features: ReferenceFeatures):
+    ref_space_uid = reference_features.to_token_layout(ref_space_uid)
     ref_space_uid[..., :, :] = ref_space_uid[..., :, :1]
     ref_space_uid = torch.flatten(ref_space_uid, start_dim=-2)
     return ref_space_uid
@@ -57,17 +57,17 @@ class AtomAttentionEncoder(nn.Module):
             self.trunk_linear_r = nn.Linear(3, c_atom, bias=False)
 
 
-    def forward(self, ref_struct: RefStructFeatures, r=None, s_trunk=None, z=None):
-        ref_space_uid = ref_struct.ref_space_uid
-        ref_pos = ref_struct.positions
-        block_mask = ref_struct.block_mask
+    def forward(self, reference_features: ReferenceFeatures, r=None, s_trunk=None, z=None):
+        ref_space_uid = reference_features.ref_space_uid
+        ref_pos = reference_features.positions
+        block_mask = reference_features.block_mask
         batch_shape = ref_space_uid.shape[:-1]
 
-        single_cond = self.per_atom_cond(ref_struct)
+        single_cond = self.per_atom_cond(reference_features)
 
         single_act = single_cond.clone()
 
-        wrong_ref_space_uid = hotfix_mangle_layout(ref_space_uid, ref_struct)
+        wrong_ref_space_uid = hotfix_mangle_layout(ref_space_uid, reference_features)
         ref_space_left = BlockSparseTensor.from_broadcast(ref_space_uid[..., :, None], block_mask, batch_shape)
         ref_space_right = BlockSparseTensor.from_broadcast(wrong_ref_space_uid[..., None, :], block_mask, batch_shape)
         ref_pos_left = BlockSparseTensor.from_broadcast(ref_pos[..., :, None, :], block_mask, batch_shape)
@@ -85,10 +85,10 @@ class AtomAttentionEncoder(nn.Module):
         pair_act += self.embed_pair_distances(1/(1+sq_dists)) * offsets_valid
 
         if self.use_trunk:
-            s_trunk = ref_struct.to_atom_layout(s_trunk, has_atom_dimension=False)
+            s_trunk = reference_features.to_atom_layout(s_trunk, has_atom_dimension=False)
 
             batch_idx, p_idx, l_idx = pair_act.inverse_lookup_indices
-            token_indices = utils.unify_batch_dimension(ref_struct.token_index, batch_shape)
+            token_indices = utils.unify_batch_dimension(reference_features.token_index, batch_shape)
             z = utils.unify_batch_dimension(z, batch_shape)
             i_idx = token_indices[batch_idx, p_idx]
             j_idx = token_indices[batch_idx, l_idx]
@@ -120,26 +120,26 @@ class AtomAttentionEncoder(nn.Module):
         )
 
 
-        token_act = ref_struct.to_token_layout(single_act)
+        token_act = reference_features.to_token_layout(single_act)
         token_act = torch.relu(self.project_atom_features(token_act))
 
-        token_act = utils.masked_mean(token_act, ref_struct.token_layout_ref_mask[..., None], axis=-2)
+        token_act = utils.masked_mean(token_act, reference_features.token_layout_ref_mask[..., None], axis=-2)
 
         skip = (single_act, single_cond, pair_act)
 
         return token_act, skip
 
-    def per_atom_cond(self, ref_struct: RefStructFeatures):
-        mask = ref_struct.mask[..., None].to(torch.float32)
-        element = ref_struct.element.long()
-        charge = ref_struct.charge[..., None].to(torch.float32)
-        name_chars = ref_struct.atom_name_chars.long()
+    def per_atom_cond(self, reference_features: ReferenceFeatures):
+        mask = reference_features.mask[..., None].to(torch.float32)
+        element = reference_features.element.long()
+        charge = reference_features.charge[..., None].to(torch.float32)
+        name_chars = reference_features.atom_name_chars.long()
 
         elements_1h = nn.functional.one_hot(element, self.atom_element_dim).to(torch.float32)
         atom_names_1h = nn.functional.one_hot(name_chars, self.atom_chars_dim).to(torch.float32)
         atom_names_1h = atom_names_1h.reshape(atom_names_1h.shape[:-2] + (-1,))
 
-        act = self.embed_ref_pos(ref_struct.positions)
+        act = self.embed_ref_pos(reference_features.positions)
         act += self.embed_ref_mask(mask)
         act += self.embed_ref_element(elements_1h)
         act += self.embed_ref_charge(torch.arcsinh(charge))
@@ -161,10 +161,10 @@ class AtomAttentionDecoder(nn.Module):
         self.layer_norm_q = nn.LayerNorm(c_atom, bias=False)
         self.linear_out = nn.Linear(c_atom, 3, bias=False)
 
-    def forward(self, a, q_skip, c_skip, p_skip, ref_struct: RefStructFeatures):
+    def forward(self, a, q_skip, c_skip, p_skip, reference_features: ReferenceFeatures):
         a = self.linear_a(a)
-        a_q = ref_struct.to_atom_layout(a, has_atom_dimension = False)
+        a_q = reference_features.to_atom_layout(a, has_atom_dimension = False)
         q = a_q + q_skip
-        q = self.atom_transformer(q, c_skip, p_skip, ref_struct.block_mask)
+        q = self.atom_transformer(q, c_skip, p_skip, reference_features.block_mask)
         r = self.linear_out(self.layer_norm_q(q))
         return r

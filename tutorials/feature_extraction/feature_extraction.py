@@ -13,11 +13,11 @@ from atomworks.ml.transforms.crop import CropContiguousLikeAF3, CropSpatialLikeA
 
 from common import utils
 from config import Config
-from feature_extraction.contact_features import CalculateContactMatrix
-from feature_extraction.msa_features import CalculateMSAFeatures, MSAFeatures
-from feature_extraction.ref_struct_features import (
-    CalculateRefStructFeatures,
-    RefStructFeatures,
+from feature_extraction.bond_features import CalculateBondMatrix
+from feature_extraction.msa_features import BuildMSAFeaturePipeline, MSAFeatures
+from feature_extraction.reference_features import (
+    CalculateReferenceFeatures,
+    ReferenceFeatures,
 )
 from feature_extraction.token_features import CalculateTokenFeatures, TokenFeatures
 
@@ -33,8 +33,8 @@ class Batch:
 
     token_features: TokenFeatures
     msa_features: MSAFeatures
-    ref_struct: RefStructFeatures
-    contact_matrix: Array
+    reference_features: ReferenceFeatures
+    bond_matrix: Array
 
 
 def tree_map(fn, x):
@@ -139,8 +139,8 @@ class BuildBatch(Transform):
         batch = Batch(
             token_features=data["token_features"],
             msa_features=data["msa_features"],
-            ref_struct=data["ref_struct"],
-            contact_matrix=data["contact_matrix"],
+            reference_features=data["reference_features"],
+            bond_matrix=data["bond_matrix"],
         )
 
         batch = tree_map(lambda x: torch.tensor(x), batch)
@@ -156,7 +156,7 @@ def custom_af3_pipeline(
     1. Remove hydrogens
     2. Drop 'O1' atoms in D-Saccharides
     3. Atomize by CCD name (atomizing all residues by default, except if they are amino acids, RNA, or DNA)
-    4. Build Token Features, Reference Structure Features, MSA Features, and Contact Matrix
+    4. Build Token Features, Reference Structure Features, MSA Features, and Bond Matrix
 
     Args:
         config: Config object for the whole AlphaFold model. In particular, the data pipeline needs to be aware of
@@ -176,15 +176,15 @@ def custom_af3_pipeline(
     """
     TODO: Initialize a list of the transforms RemoveHydrogens, HotfixDropSaccharideO1, AddGlobalAtomIdAnnotation, 
     AtomizeByCCDName (atomizing by default, except if they are part of STANDARD_AA, STANDARD_RNA, or STANDARD_DNA), 
-    and the four AF3-specific transforms CalculateTokenFeatures, CalculateRefStructFeatures, CalculateMSAFeatures, 
-    and CalculateContactMatrix (in this order), which we implement in the other files. 
+    and the four AF3-specific transforms CalculateTokenFeatures, CalculateReferenceFeatures, CalculateMSAFeatures, 
+    and CalculateBondMatrix (in this order), which we implement in the other files. 
     Finally, append BuildBatch to assemble the dict into a Batch object. The transforms fulfill the following tasks:
     - RemoveHydrogens: Removes all hydrogen atoms from the input.
     - HotfixDropSaccharideO1: Drops all atoms named 'O1', which is necessary to match AF3's input features.
     - AddGlobalAtomIdAnnotation: Adds range(N) as a global atom id annotation. We don't need that, but ourselves, 
         but the Atomworks Cropping transforms for training require the transform. 
     - AtomizeByCCDName: Adds an 'atomize' flag to the input AtomArray, that is true for atoms belonging to ligands 
-        or modified residues. We use this flag in ConcatMSAs and CalculateContactMatrix. 
+        or modified residues. We use this flag in ConcatMSAs and CalculateBondMatrix. 
     - our custom transforms construct the actual features based on the AtomArray.
 
     Note for when you are doing Chapter Training: Also add a train_transform that is a RandomRoute 

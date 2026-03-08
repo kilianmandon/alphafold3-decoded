@@ -21,19 +21,19 @@ import common.utils as utils
 Array = np.ndarray | torch.Tensor
 
 @dataclass
-class RefStructFeatures:
+class ReferenceFeatures:
     """
     Reference Structure Features for AlphaFold 3. All features have shape (**batch_shape, n_atoms), 
     except for atom_name_chars which has shape (**batch_shape, n_atoms, 4).
     """
 
-    element: Array
-    charge: Array
-    atom_name_chars: Array
-    positions: Array
-    mask: Array
-    ref_space_uid: Array
-    token_index: Array
+    element: Array # Element number
+    charge: Array  # Atom charge
+    atom_name_chars: Array # Ascii Encoded
+    positions: Array # from generated conformer
+    mask: Array # Indicates presence of an atom
+    ref_space_uid: Array # Unique ID of the corresponding residue
+    token_index: Array # Index of the corresponding token
 
     @property
     def atom_count(self):
@@ -71,8 +71,9 @@ class RefStructFeatures:
         with range(24) to get the final mask. 
         """
 
-        # Replace 'pass' with your code
-        pass
+        token_atom_one_hot = F.one_hot(token_index, num_classes=token_count) * mask[..., None]
+        token_atom_counts = token_atom_one_hot.sum(dim=-2)
+        ref_mask = torch.arange(24, device=mask.device) < token_atom_counts[..., None]
 
         """ End of your code """
 
@@ -100,8 +101,10 @@ class RefStructFeatures:
         using the token_layout_ref_mask on the left and the regular mask on the right.
         """
 
-        # Replace 'pass' with your code
-        pass
+        feature_shape = feature.shape[len(batch_shape)+1:]
+        out_shape = batch_shape + (token_count, 24) + feature_shape
+        out = torch.zeros(out_shape, dtype=feature.dtype, device=feature.device)
+        out[token_layout_ref_mask] = feature[self.mask]
 
         """ End of your code """
 
@@ -126,8 +129,11 @@ class RefStructFeatures:
         after making the shapes compatible by inserting an atom dimension of size 1.
         """
 
-        # Replace 'pass' with your code
-        pass
+        unsqueezed_shape = batch_shape + (token_count, 1) + feature.shape[len(batch_shape) + 1:]
+        broadcasted_shape = batch_shape + (token_count, 24) + feature.shape[len(batch_shape) + 1:]
+
+        feature = feature.reshape(unsqueezed_shape)
+        feature = feature.expand(broadcasted_shape)
 
         """ End of your code """
 
@@ -155,8 +161,12 @@ class RefStructFeatures:
         Then, you can do the layout conversion just as in to_token_layout using the two boolean masks, but in reverse.
         """
 
-        # Replace 'pass' with your code
-        pass
+        if not has_atom_dimension:
+            feature = self.patch_atom_dimension(feature)
+
+        out_shape = batch_shape + (self.atom_count,) + feature.shape[len(batch_shape)+2:]
+        out = torch.zeros(out_shape, dtype=feature.dtype, device=feature.device)
+        out[mask] = feature[token_layout_ref_mask]
 
         """ End of your code """
 
@@ -176,7 +186,7 @@ class RefStructFeatures:
         The block_mask is cached, so that it isn't recomputed on reevaluation.
         """
 
-        batch_shape = self.mask.shape[:-2]
+        batch_shape = self.mask.shape[:-1]
         batch_size = math.prod(batch_shape) 
         # self.atom_count is a single number, since all inputs in a batch are padded to the same atom count
         n_blocks = self.atom_count // 32
@@ -204,14 +214,32 @@ class RefStructFeatures:
         - Use create_block_mask for to create the actual block mask.
         """
 
-        # Replace 'pass' with your code
-        pass
+        centers = torch.arange(16, self.atom_count, 32, device=self.mask.device, dtype=torch.int32)
+        centers = centers.unsqueeze(0).expand(batch_size, n_blocks)
+        left_bounds = centers - 64
+        right_bounds = centers + 64
+
+        left_violation = torch.clamp(left_bounds, max=0)
+        right_violation = torch.clamp(right_bounds - unpadded_atom_count[:, None], min=0)
+        shift = -(left_violation + right_violation)
+
+        left_bounds += shift
+        right_bounds += shift
+
+        left_bounds = left_bounds.detach()
+        right_bounds = right_bounds.detach()
+        unpadded_atom_count = unpadded_atom_count.detach()
+
+        def mask_mod(b, h, q, k):
+            return (q < unpadded_atom_count[b]) & (left_bounds[b, q//32] <= k) & (k < right_bounds[b, q//32])
+        
+        block_mask = create_block_mask(mask_mod, batch_size, None, self.atom_count, self.atom_count, self.mask.device)
 
         """ End of your code """
         return block_mask
 
 
-class CalculateRefStructFeatures(Transform):
+class CalculateReferenceFeatures(Transform):
 
     @staticmethod
     def calculate_ref_positions(atom_array: AtomArray):
@@ -256,8 +284,43 @@ class CalculateRefStructFeatures(Transform):
               If you don't find a matching atom name, print a warning and skip that atom.
         """
 
-        # Replace 'pass' with your code
-        pass
+        cached_conformers = {}
+        cached_unknown_conformers = {}
+
+        positions = np.zeros((len(atom_array), 3))
+
+        for i, (res_name, chain_iid) in enumerate(zip(res_names, chain_iids)):
+            if res_name in known_ccd_codes:
+                if (res_name, chain_iid) not in cached_conformers:
+                    mol = ccd_code_to_rdkit(res_name)
+                    # Note: AF3 sanitizes the atom order by sorting atoms based on their name. 
+                    # This does not strongly affect the results, since the conformer generation doesn't rely 
+                    # on the atom order, aside from its random seed.
+
+                    # annotations = mol._annotations
+                    # order = np.argsort(annotations['atom_name'])
+                    # mol = rdkit.Chem.RenumberAtoms(mol, order.tolist())
+                    # mol._annotations = {
+                    #     k: v[order] for k, v in annotations.items()
+                    # }
+                    # mol = generate_conformers(mol, seed=1, optimize=False, attempts_with_distance_geometry=250, hydrogen_policy='keep')
+
+                    mol = generate_conformers(mol)
+                    cached_conformers[(res_name, chain_iid)] = atom_array_from_rdkit(mol, conformer_id=0)
+                conformer = cached_conformers[(res_name, chain_iid)]
+            else:
+                if res_name not in cached_unknown_conformers:
+                    res_atom_array = atom_array[residue_starts[i]:residue_ends[i]]
+                    cached_unknown_conformers[res_name] = sample_rdkit_conformer_for_atom_array(res_atom_array)
+
+                conformer = cached_unknown_conformers[res_name]
+
+            for j in range(residue_starts[i], residue_ends[i]):
+                matching_atom_idx = np.nonzero(conformer.atom_name == atom_array.atom_name[j])[0]
+                if len(matching_atom_idx) == 0:
+                    print(f'Warning: could not find matching atom for residue {res_name}')
+                else:
+                    positions[j] = conformer.coord[matching_atom_idx]
 
         """ End of your code """
 
@@ -284,9 +347,10 @@ class CalculateRefStructFeatures(Transform):
         You can use .view(np.uint8) to convert it to bytes (of shape (4*n_atoms,)), then reshape it 
         for the desired output format. Finally, subtract 32 to get the correct range.
         """
-
-        # Replace 'pass' with your code
-        pass
+        padded = np.strings.ljust(atom_names, width=4)
+        cropped = np.strings.slice(padded, 0, 4)
+        encoded = np.strings.encode(cropped, encoding='ascii')
+        encoded = encoded.view(np.uint8).reshape(-1, 4) - 32
 
         """ End of your code """
 
@@ -295,7 +359,7 @@ class CalculateRefStructFeatures(Transform):
 
     def forward(self, data: dict):
         atom_array: AtomArray = data['atom_array']
-        ref_struct_features = None
+        reference_features = None
 
         """
         TODO: Implement the feature construction. Concretely,
@@ -307,14 +371,36 @@ class CalculateRefStructFeatures(Transform):
               (the indices are the ids).
           - In the end, compute the padded atom count as token_count * 24 (token_count from data['token_features']) 
               and pad all features to leading shape (n_padded_atom_count,) using utils.pad_to_shape, and assemble 
-              the RefStructFeatures dataclass.
+              the ReferenceFeatures dataclass.
         """
 
-        # Replace 'pass' with your code
-        pass
+        residue_starts = get_residue_starts(atom_array)
+        _, ref_space_uid = utils.round_down_to(np.arange(len(atom_array)), residue_starts, return_indices=True)
+
+        token_starts = get_token_starts(atom_array)
+        _, token_index = utils.round_down_to(np.arange(len(atom_array)), token_starts, return_indices=True)
+
+        reference_features = {
+            'element': atom_array.atomic_number,
+            'charge': atom_array.charge,
+            'atom_name_chars': self.prep_atom_chars(atom_array.atom_name),
+            'positions': self.calculate_ref_positions(atom_array).astype(np.float32),
+            'mask': np.ones_like(atom_array.atomic_number).astype(bool),
+            'ref_space_uid': ref_space_uid,
+            'token_index': token_index,
+        }
+
+        padded_atom_count = data['token_features'].token_count * 24
+
+
+        for k, v in reference_features.items():
+            padded_shape = (padded_atom_count,) + v.shape[1:]
+            reference_features[k] = utils.pad_to_shape(v, padded_shape)
+
+        reference_features = ReferenceFeatures(**reference_features)
 
         """ End of your code """
 
-        data['ref_struct'] = ref_struct_features
+        data['reference_features'] = reference_features
 
         return data

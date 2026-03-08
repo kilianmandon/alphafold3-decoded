@@ -59,7 +59,8 @@ class Evoformer(nn.Module):
         prev_z = torch.zeros(batch_shape+(N_token, N_token, c_z), device=device, dtype=torch.float32)
 
         for i in tqdm.tqdm(range(self.n_cycle)):
-            torch.cuda.nvtx.range_push(f'Evoformer {i}')
+            if torch.cuda.is_available():
+                torch.cuda.nvtx.range_push(f'Evoformer {i}')
             sub_batch = copy.deepcopy(batch)
             sub_batch.msa_features.msa_feat = sub_batch.msa_features.msa_feat[..., i]
             sub_batch.msa_features.msa_mask = sub_batch.msa_features.msa_mask[..., i]
@@ -72,7 +73,8 @@ class Evoformer(nn.Module):
 
             s, z = self.pairformer(s, z, token_features)
             prev_s, prev_z = s, z
-            torch.cuda.nvtx.range_pop()
+            if torch.cuda.is_available():
+                torch.cuda.nvtx.range_pop()
 
         return s_input, s, z, rel_feat
 

@@ -1,3 +1,8 @@
+import os
+# Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
+os.environ["PDB_MIRROR_PATH"] = ""
+os.environ["CCD_MIRROR_PATH"] = ""
+
 import time
 import torch
 from common.utils import load_alphafold_input, rand_rot
@@ -5,10 +10,7 @@ from config import Config
 from feature_extraction.feature_extraction import Batch, custom_af3_pipeline, tree_map, collate_batch
 from diffusion.model import Model
 import tensortrace as ttr
-import os
-# Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
-os.environ["PDB_MIRROR_PATH"] = ""
-os.environ["CCD_MIRROR_PATH"] = ""
+from atomworks.io.utils.io_utils import to_cif_file
 
 
 def reorder_encoding(dim=-1, offset=0):
@@ -75,19 +77,19 @@ def main(test_name):
     debug_positions = ttr.load('ref_structure/positions')
     debug_positions = hotfix_roll(debug_positions, shifts=-1)
 
-    batch.ref_struct.positions = batch.ref_struct.to_atom_layout(debug_positions)
+    batch.reference_features.positions = batch.reference_features.to_atom_layout(debug_positions)
 
     print(f'Featurization took {time.time()-t1:.1f} seconds.')
 
 
 
     ttr.compare({
-        'mask': batch.ref_struct.mask,
-        'charge': batch.ref_struct.charge,
-        'element': batch.ref_struct.element,
-        'atom_name_chars': batch.ref_struct.atom_name_chars,
-        'ref_space_uid': batch.ref_struct.ref_space_uid,
-    }, 'ref_structure', use_mask={'mask': False }, input_processing=[lambda x: batch.ref_struct.to_token_layout(x), hotfix_roll])
+        'mask': batch.reference_features.mask,
+        'charge': batch.reference_features.charge,
+        'element': batch.reference_features.element,
+        'atom_name_chars': batch.reference_features.atom_name_chars,
+        'ref_space_uid': batch.reference_features.ref_space_uid,
+    }, 'ref_structure', use_mask={'mask': False }, input_processing=[lambda x: batch.reference_features.to_token_layout(x), hotfix_roll])
 
     token_feats = {
         'asym_id': batch.token_features.asym_id,
@@ -114,13 +116,13 @@ def main(test_name):
     model = model.to(device=device)
     model.eval()
 
-    s_input, s_trunk, z_trunk, rel_enc = model.evoformer(batch)
+    s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
     ttr.compare(s_trunk, 'evoformer/single')
     ttr.compare(z_trunk, 'evoformer/pair')
 
 
     def t2q(tensor):
-        return batch.ref_struct.to_atom_layout(tensor)
+        return batch.reference_features.to_atom_layout(tensor)
 
     def indexing(*args):
         def apply_index(tensor):
@@ -143,10 +145,10 @@ def main(test_name):
 
     with ttr.Chapter('diffusion'):
         diff_x = model.diffusion_sampler(model.diffusion_module,
-                                s_input, s_trunk, z_trunk, rel_enc, 
+                                s_input, s_trunk, z_trunk, rel_feat, 
                                 batch, noise_data=diffusion_randomness)
 
-    diff_x = batch.ref_struct.to_token_layout(diff_x)
+    diff_x = batch.reference_features.to_token_layout(diff_x)
 
     ttr.compare(diff_x, 'diffusion/final_positions', processing=[indexing(0), hotfix_roll_inv])
 
@@ -167,18 +169,21 @@ def batch_test():
 
     data1 = load_alphafold_input(f'data/fold_inputs/fold_input_{test1}.json')
     data2 = load_alphafold_input(f'data/fold_inputs/fold_input_{test2}.json')
-    torch.cuda.nvtx.range_push('Featurization 1')
+    if torch.cuda.is_available():
+        torch.cuda.nvtx.range_push('Featurization 1')
     b1 = transform.forward(data1)['batch']
-    torch.cuda.nvtx.range_pop()
-    torch.cuda.nvtx.range_push('Featurization 2')
+    if torch.cuda.is_available():
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_push('Featurization 2')
     b2 = transform.forward(data2)['batch']
-    torch.cuda.nvtx.range_pop()
+    if torch.cuda.is_available():
+        torch.cuda.nvtx.range_pop()
 
     def gen_diff_noise(batch: Batch):
         diffusion_randomness = {
-            'init_pos': torch.randn(batch.ref_struct.atom_count, 3),
-            'noise': torch.randn(config.diffusion_config.denoising_steps, batch.ref_struct.atom_count, 3),
-            'aug_rot': rand_rot((config.diffusion_config.denoising_steps,), device=batch.ref_struct.positions.device),
+            'init_pos': torch.randn(batch.reference_features.atom_count, 3),
+            'noise': torch.randn(config.diffusion_config.denoising_steps, batch.reference_features.atom_count, 3),
+            'aug_rot': rand_rot((config.diffusion_config.denoising_steps,), device=batch.reference_features.positions.device),
             'aug_trans': torch.randn(config.diffusion_config.denoising_steps, 3),
         }
 
@@ -201,9 +206,9 @@ def batch_test():
     model.eval()
 
     def model_fwd(model, data, noise):
-        s_input, s_trunk, z_trunk, rel_enc = model.evoformer(data)
+        s_input, s_trunk, z_trunk, rel_feat = model.evoformer(data)
         out = model.diffusion_sampler(model.diffusion_module,
-                                s_input, s_trunk, z_trunk, rel_enc, 
+                                s_input, s_trunk, z_trunk, rel_feat, 
                                 data, noise_data=noise)
         return out
 
@@ -236,19 +241,50 @@ def batch_test():
     torch.cuda.memory._record_memory_history(enabled=None)
 
     out_single_joined = collate_batch([out1, out2])
-    mask = b_joined.ref_struct.mask
+    mask = b_joined.reference_features.mask
 
     da = torch.abs(out_joined - out_single_joined)
     da = da * mask.unsqueeze(-1)
     print(da.max())
     ...
 
+def inference():
+    test_name = 'lysozyme'
+    with torch.no_grad():
+        config = Config()
+
+    model = Model(config)
+    params = torch.load('data/params/af3_pytorch.pt')
+    model.load_state_dict(params)
+
+    t1 = time.time()
+    data = load_alphafold_input(f'data/fold_inputs/fold_input_{test_name}.json')
+    transform = custom_af3_pipeline(config)
+
+    data = transform.forward(data)
+    batch = data['batch']
+
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+
+    batch: Batch = tree_map(lambda x: x.to(device=device), batch)
+
+    model = model.to(device=device)
+    model.eval()
+    x_out = model(batch)
+
+    atom_array = data['atom_array']
+    atom_mask = batch.ref_struct.mask.cpu().numpy()
+    atom_array.coord = x_out[atom_mask]
+    to_cif_file(atom_array, f'data/out/{test_name}.cif')  
 
 
 
 if __name__=='__main__':
-    # test_name = 'lysozyme'
-    # with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
-    #     main(test_name)
-    with torch.no_grad():
-        batch_test()
+    test_name = 'lysozyme'
+    with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
+        main(test_name)
+    # with torch.no_grad():
+    #     batch_test()

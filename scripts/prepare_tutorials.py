@@ -106,7 +106,7 @@ def main():
     if tutorials_root.exists():
         shutil.rmtree(tutorials_root)
 
-    blacklist = "internal_tests.py"
+    blacklist = ["internal_tests.py", "quick_test.py", "timing_test.py"]
 
     if not solutions_root.exists():
         print("Error: 'solutions/' directory not found. Run this script from the project root.")
@@ -128,7 +128,7 @@ def main():
     for src in py_files:
         rel = src.relative_to(solutions_root)
 
-        if rel.name == blacklist:
+        if rel.name in blacklist:
             print(f"  [skipped] {rel}")
             continue
 
