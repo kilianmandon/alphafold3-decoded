@@ -56,7 +56,7 @@ base_transforms = [
     AtomizeByCCDName(atomize_by_default=True, res_names_to_ignore=STANDARD_AA + STANDARD_RNA + STANDARD_DNA),
 ]
 
-ttr.TensorTrace('data/tensortraces/feature_extraction', mode='write', framework='numpy').start_trace()
+ttr.TensorTrace('data/tensortraces/feature_extraction', mode='read', framework='numpy').start_trace()
 
 ttr.current_trace().atol = 1e-6
 ttr.current_trace().rtol = 1e-5
@@ -90,7 +90,7 @@ for initial_shape, target_shape, padding_val in zip(initial_shapes, target_shape
     y = utils.pad_to_shape(x, target_shape, padding_val)
     success = success and ttr.log_or_compare(y, 'pad_to_shape')
 
-if success: print('pad_to_shape tests created.')
+if success: print('pad_to_shape tests passed.')
 
 # Test round_down_to
 values_1 = np.random.randint(0, 100, size=50)
@@ -103,7 +103,7 @@ for values in [values_1, values_2]:
     success = success and ttr.log_or_compare(y, 'round_down_to')
     success = success and ttr.log_or_compare(y_inds, 'round_down_to_inds')
 
-if success: print('round_down_to tests created.')
+if success: print('round_down_to tests passed.')
 
 # Test masked_mean
 shapes = [(5,), (4, 6), (3, 4, 5)]
@@ -117,7 +117,7 @@ for shape, axis in zip(shapes, axes):
     y = np.array(y)
     success = success and ttr.log_or_compare(y, 'masked_mean')
 
-if success: print('masked_mean tests created.')
+if success: print('masked_mean tests passed.')
 
 
 #  We want to implement the first AlphaFold feature, the bond matrix. The matrix is of shape (n_tokens, n_tokens),and denotes which tokens have a covalent bond between each other. In AlphaFold, one token corresponds to one amino acid (in proteins), one nucleotide (in DNA/RNA), or one atom of an _atomized_ structure (e.g. a modified residue or ligand). The number of tokens is theoretically arbitrary, but AlphaFold rounds it up to certain bucket sizes (e.g. 256, 512, 768, ...) for better performance, padding the features with zeros if necessary. 
@@ -137,7 +137,7 @@ ttr.reset_loading_index()
 for x, y in zip([2583, 512, 0], [3072, 512, 256]):
     assert round_to_bucket(x) == y, f'Problem with round_to_bucket, x={x}, y_desired={y}, y_actual={round_to_bucket(x)}'
 
-print('round_to_bucket tests created.')
+print('round_to_bucket tests passed.')
 
 transform = Compose(base_transforms + [CalculateBondMatrix()])
 
@@ -147,7 +147,7 @@ for inputs in test_inputs_pipeline:
     bond_matrix = transform(inputs)['bond_matrix']
     success = success and ttr.log_or_compare(bond_matrix, 'bond_matrix')
 
-if success: print('Bond matrix tests created.')
+if success: print('Bond matrix tests passed.')
 
 
 # ## Token Features
@@ -168,7 +168,7 @@ for test_input in test_inputs_pipeline:
     restype_ints = encode_restype(restype_strs)
     success = success and ttr.log_or_compare(restype_ints, 'encoded_restypes')
 
-if success: print('Restype encoding tests created.')
+if success: print('Restype encoding tests passed.')
 
 
 # Now, we will implement the actual feature computation: The `forward` method of the `CalculateTokenFeatures` transform. The docstring contains a detailed description of how to compute the features. Notably, we will construct the features based on the atom_array, which has shape (n_atoms,), not (n_tokens,). To get representative atoms for each token, we will use the method `get_token_starts` from atomworks to get indices of the first atom of each token. We can index into the atom_array with these to get the representative atoms. 
@@ -191,7 +191,7 @@ for test_input in test_inputs_pipeline:
     token_features = transform(test_input)['token_features'].__dict__
     success = success and ttr.log_or_compare(token_features, 'token_features')
 
-if success: print('Token feature calculation tests created.')
+if success: print('Token feature calculation tests passed.')
 
 
 # ## Reference Features
@@ -223,7 +223,7 @@ for test_input in test_inputs_pipeline:
     success = success and ttr.log_or_compare(reference_features, 'reference_features')
 
 
-if success: print('Reference feature calculation (without unknown entries) tests created.')
+if success: print('Reference feature calculation (without unknown entries) tests passed.')
 
 test_unknown_ligand = test_inputs_pipeline[0]
 data_no_ref = transform_no_ref(test_unknown_ligand)
@@ -232,7 +232,7 @@ atom_array.res_name[atom_array.res_name == 'GLY'] = 'UNL'
 reference_features = calc_ref(data_no_ref)['reference_features'].__dict__
 success = ttr.log_or_compare(reference_features, 'reference_features_unknown_ligand')
 
-if success: print('Reference feature calculation (with unknown entries) tests created.')
+if success: print('Reference feature calculation (with unknown entries) tests passed.')
 
 
 # Now, we will complete the reference features by implementing the conversion between atom-layout and token-layout, e.g. by implementing the methods `to_token_layout` and `to_atom_layout`, as well as the two helper methods `token_layout_ref_mask` and `patch_atom_dimension` in the class `ReferenceFeatures`. The basic idea is this: We already have the mask for the reference features in atom-layout, e.g. of shape `(**batch_shape, n_atoms)`. Now, we can just build an equivalent mask in token-layout, of shape `(**batch_shape, n_tokens, 24)`, based on the info how many atoms are present in each token, which we do in `token_layout_ref_mask`. Then, we can do feature conversion as `feat = zeros(out_shape); feat[token_layout_ref_mask] = feat_atom_layout[atom_layout_ref_mask]` and vice versa. The method `patch_atom_dimension` is simply utility for the case that we want to do token-layout -> atom-layout conversion, but the input feature doesn't have an atom dimension and simply requires broadcasting along that dimension.
@@ -282,7 +282,7 @@ for i, test_data in enumerate(test_data_individual):
     to_atom_no_atom_dim_list.append(to_atom_no_atom_dim)
     to_token_list.append(to_token)
 
-if success: print('Individual to_atom and to_token tests created.')
+if success: print('Individual to_atom and to_token tests passed.')
 # Batch tests
 test_data_batch = collate_batch(test_data_individual, drop_unconvertible_entries=True)
 reference_features_batch: ReferenceFeatures = test_data_batch['reference_features']
@@ -297,7 +297,7 @@ assert np.allclose(to_atom_with_feats_batch, collate_batch(to_atom_with_feats_li
 assert np.allclose(to_atom_no_atom_dim_batch, collate_batch(to_atom_no_atom_dim_list)), 'Batch to_atom_no_atom_dim does not match individual'
 assert np.allclose(to_token_batch, collate_batch(to_token_list)), 'Batch to_token does not match individual'
 
-print('Batch to_atom and to_token tests created.')
+print('Batch to_atom and to_token tests passed.')
 
 
 # ## MSA Features
@@ -333,7 +333,7 @@ for i, test_input in enumerate(test_inputs_pipeline):
     msa_encs = { chain_id: data['msa'] for chain_id, data in data['polymer_msas_by_chain_id'].items()}
     success = success and ttr.log_or_compare(msa_encs, f'msa_encodings_{i}')
 
-if success: print('MSA encoding tests created.')
+if success: print('MSA encoding tests passed.')
 
 
 # Next up is the transform `ConcatMSAs` to do step 2. Test it by running the following cell.
@@ -361,7 +361,7 @@ for test_input in test_inputs_pipeline:
     data = transform(test_input)
     success = success and ttr.log_or_compare(data['msa_features'], 'raw_msa_features')
 
-if success: print('MSA feature concatenation tests created.')
+if success: print('MSA feature concatenation tests passed.')
 
 
 # The steps 3 and 4 are both done in the same transform `BuildMSAFeatures`. Concretely, it creates two features, the target_feat (which does not include an MSA dimension) and the msa_feat (which includes an MSA dimension), then subsamples this msa_feat. Implement the transform and run the following cell to test your implementation.
@@ -396,7 +396,7 @@ for test_input in test_inputs_pipeline:
     data = transform(test_input)
     success = success and ttr.log_or_compare(data['msa_features'].__dict__, 'msa_features')
 
-if success: print('MSA feature assembly tests created.')
+if success: print('MSA feature assembly tests passed.')
 
 
 # Lastly, the transform `BuildMSAFeaturePipeline` simply joines the previous transforms together into one single transform. Note that it also includes two transforms you didn't implement yourselves, `HotfixDuplicateRowIfSingleMSA` and `HotfixAF3LigandAsGap`. These account for some perks in AF3 feature encoding that might not be desirable for a general feature extraction pipeline, and are solely included to mirror AF3 exactly (so that the AF3 weights can be used for the model). 
@@ -430,7 +430,7 @@ for test_input in test_inputs_pipeline:
     data = transform(test_input)
     success = success and ttr.log_or_compare(data['msa_features'].__dict__, 'msa_features_full_pipeline')
 
-if success: print('Full MSA feature calculation tests created.')
+if success: print('Full MSA feature calculation tests passed.')
 
 
 # ## Putting it all together
@@ -464,7 +464,7 @@ for test_input in test_inputs_pipeline:
     }
     success = success and ttr.log_or_compare(batch_as_dict, 'full_batch')
 
-if success: print('Full feature extraction pipeline tests created.')
+if success: print('Full feature extraction pipeline tests passed.')
 
 
 # ## Conclusion

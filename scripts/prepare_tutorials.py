@@ -102,9 +102,13 @@ def convert_solution_notebooks(src: Path, solutions_root: Path):
 def main():
     solutions_root = Path("solutions")
     tutorials_root = Path("tutorials")
+    solutions_conv_notebook = solutions_root / "converted_notebooks"
 
     if tutorials_root.exists():
         shutil.rmtree(tutorials_root)
+
+    if solutions_conv_notebook.exists():
+        shutil.rmtree(solutions_conv_notebook)
 
     blacklist = ["internal_tests.py", "quick_test.py", "timing_test.py"]
 
@@ -113,14 +117,6 @@ def main():
         return
 
     nb_files  = list(solutions_root.glob("**/*.ipynb"))
-
-    # Transform nb_files to py_files within solutions folder
-    Path('solutions/converted_notebooks').mkdir(exist_ok=True)
-    Path('solutions/converted_notebooks/__init__.py').touch()  # make it a package
-    for src in nb_files:
-        convert_solution_notebooks(src, solutions_root)
-
-
     py_files  = list(solutions_root.glob("**/*.py"))
 
     print(f"Found {len(py_files)} .py files and {len(nb_files)} .ipynb files.\n")
@@ -139,6 +135,22 @@ def main():
         rel = src.relative_to(solutions_root)
         dst = tutorials_root / rel
         convert_ipynb(src, dst, tutorials_root)
+
+    nb_files_solutions  = list(solutions_root.glob("**/*.ipynb"))
+
+    # Transform nb_files to py_files within solutions folder
+    Path('solutions/converted_notebooks').mkdir(exist_ok=True)
+    Path('solutions/converted_notebooks/__init__.py').touch()  # make it a package
+    for src in nb_files_solutions:
+        convert_solution_notebooks(src, solutions_root)
+
+    nb_files_tutorials  = list(tutorials_root.glob("**/*.ipynb"))
+
+    # Transform nb_files to py_files within solutions folder
+    Path('tutorials/converted_notebooks').mkdir(exist_ok=True)
+    Path('tutorials/converted_notebooks/__init__.py').touch()  # make it a package
+    for src in nb_files_tutorials:
+        convert_solution_notebooks(src, tutorials_root)
 
     print("Creating data/ symlink...")
     data_src = Path("../data")
