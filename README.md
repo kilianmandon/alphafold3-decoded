@@ -7,13 +7,14 @@ Setup is a bit more complex this time around. To prepare you for all the possibl
 - For Windows Users: Install WSL [[link]](https://code.visualstudio.com/docs/remote/wsl). As of now, Conformer generation through Atomworks is not working on Windows without WSL. Make sure you are working within WSL when you are working on the notebooks and executing the scripts. With WSL setup, follow the 'For Linux' steps for the rest of the setup.
 - Install Git, Devtools, and the package manager UV:
   ```
-  # For MacOS:
+  # For MacOS (close and reopen terminal after running the commands):
   xcode-select --install
   brew install git 
   curl -LsSf https://astral.sh/uv/install.sh | sh 
   ```
   ```
-  # For Linux:
+  # For Linux (close and reopen terminal after running the commands):
+  sudo apt update
   sudo apt install -y build-essential python3-dev git
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
