@@ -2,8 +2,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pandas as pd
 import torch
 from atomworks import parse
 from atomworks.constants import STANDARD_AA
@@ -30,6 +29,18 @@ from feature_extraction.feature_extraction import collate_batch, custom_af3_pipe
 def simple_loading_fn(raw_data):
     parse_output = parse(raw_data)
     return {'atom_array': parse_output['assemblies']['1'][0]}
+
+def extract_top1000_entries():
+    if not Path('data/datasets/pdb_metadata/interfaces_df_top1000.parquet').exists():
+        interfaces_df = pd.read_parquet('data/datasets/pdb_metadata/interfaces_df.parquet')
+        interfaces_df[:1000].to_parquet('data/datasets/pdb_metadata/interfaces_df_top1000.parquet')
+    if not Path('data/datasets/pdb_metadata/pn_units_df_top1000.parquet').exists():
+        pn_units_df = pd.read_parquet('data/datasets/pdb_metadata/pn_units_df.parquet')
+        pn_units_df[:1000].to_parquet('data/datasets/pdb_metadata/pn_units_df_top1000.parquet')
+
+
+
+
 
 def build_af3_dataset(config: Config):
     datasets = [

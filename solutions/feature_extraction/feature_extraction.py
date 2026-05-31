@@ -72,7 +72,13 @@ def collate_batch(
     Args:
         batch: List of objects to collate.
     """
+
     first = batch[0]
+
+    # When collating a dict, keys in dict_key_blacklist are just turned to a list
+    # Note: This code was changed after freeze for the YouTube video
+    dict_key_blacklist = ["original_data"]
+
     if isinstance(first, torch.Tensor):
         max_shape = np.array([b.shape for b in batch]).max(axis=0).tolist()
         padded_batch = [utils.pad_to_shape(b, max_shape) for b in batch]
@@ -99,8 +105,11 @@ def collate_batch(
                 [b[k] for b in batch],
                 drop_unconvertible_entries=drop_unconvertible_entries,
             )
-            for k in first.keys()
+            for k in first.keys() if k not in dict_key_blacklist
         }
+        for k in first.keys():
+            if k in dict_key_blacklist:
+                field_dict[k] = [b[k] for b in batch]
         return field_dict
 
     if not drop_unconvertible_entries:
@@ -145,7 +154,7 @@ class BuildBatch(Transform):
 
         batch = tree_map(lambda x: torch.tensor(x), batch)
 
-        return { "batch": batch, "atom_array": data["atom_array"] }
+        return { "batch": batch, "original_data": data }
 
 
 def custom_af3_pipeline(

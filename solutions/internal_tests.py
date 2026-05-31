@@ -290,7 +290,7 @@ def inference():
     # Stop recording memory snapshot history.
     torch.cuda.memory._record_memory_history(enabled=None)
 
-    atom_array = data['atom_array']
+    atom_array = data['original_data']['atom_array']
     atom_mask = batch.reference_features.mask.cpu().numpy()
     atom_array.coord = x_out[atom_mask].cpu().numpy()
     to_cif_file(atom_array, f'data/out/{test_name}.cif')  
