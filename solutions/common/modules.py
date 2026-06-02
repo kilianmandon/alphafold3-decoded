@@ -163,7 +163,7 @@ class DiffusionTransformer(nn.Module):
 
     def forward(self, a, s, z, block_mask: BlockMask):
         for att_pair_block, cond_trans_block in zip(self.att_pair_bias, self.cond_trans):
-            a += att_pair_block(a, z, block_mask, s=s)
-            a += cond_trans_block(a, s)
+            a = a + att_pair_block(a, z, block_mask, s=s)
+            a = a + cond_trans_block(a, s)
 
         return a

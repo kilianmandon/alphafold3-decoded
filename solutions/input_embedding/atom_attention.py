@@ -82,7 +82,7 @@ class AtomAttentionEncoder(nn.Module):
 
         sq_dists = torch.sum(offsets**2, dim=-1, keepdim=True)
 
-        pair_act += self.embed_pair_distances(1/(1+sq_dists)) * offsets_valid
+        pair_act = pair_act + self.embed_pair_distances(1/(1+sq_dists)) * offsets_valid
 
         if self.use_trunk:
             s_trunk = reference_features.to_atom_layout(s_trunk, has_atom_dimension=False)
@@ -94,8 +94,8 @@ class AtomAttentionEncoder(nn.Module):
             j_idx = token_indices[batch_idx, l_idx]
             z = pair_act._wrap(z[batch_idx, i_idx, j_idx])
 
-            single_cond += self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
-            pair_act += self.trunk_linear_z(self.trunk_layer_norm_z(z))
+            single_cond = single_cond + self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
+            pair_act = pair_act + self.trunk_linear_z(self.trunk_layer_norm_z(z))
 
             # Note: The paper uses the old, non-trunk-updated value
             # for queries_single_cond here
@@ -107,10 +107,10 @@ class AtomAttentionEncoder(nn.Module):
         col_act = self.single_to_pair_col(torch.relu(single_cond))
         col_act = BlockSparseTensor.from_broadcast(col_act[..., None, :, :], block_mask, batch_shape)
 
-        pair_act += row_act + col_act
-        pair_act += self.embed_pair_mask(offsets_valid)
+        pair_act = pair_act + row_act + col_act
+        pair_act = pair_act + self.embed_pair_mask(offsets_valid)
 
-        pair_act += self.pair_mlp(pair_act)
+        pair_act = pair_act + self.pair_mlp(pair_act)
 
         single_act = self.atom_transformer(
             single_act,
@@ -140,11 +140,11 @@ class AtomAttentionEncoder(nn.Module):
         atom_names_1h = atom_names_1h.reshape(atom_names_1h.shape[:-2] + (-1,))
 
         act = self.embed_ref_pos(reference_features.positions)
-        act += self.embed_ref_mask(mask)
-        act += self.embed_ref_element(elements_1h)
-        act += self.embed_ref_charge(torch.arcsinh(charge))
+        act = act + self.embed_ref_mask(mask)
+        act = act + self.embed_ref_element(elements_1h)
+        act = act + self.embed_ref_charge(torch.arcsinh(charge))
 
-        act += self.embed_ref_atom_name(atom_names_1h)
+        act = act + self.embed_ref_atom_name(atom_names_1h)
         act *= mask
 
         return act

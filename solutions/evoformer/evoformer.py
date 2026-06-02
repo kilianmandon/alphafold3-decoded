@@ -66,7 +66,7 @@ class Evoformer(nn.Module):
             sub_batch.msa_features.msa_mask = sub_batch.msa_features.msa_mask[..., i]
 
             z = z_init + self.prev_z_embedding(self.layer_norm_prev_z(prev_z))
-            z += self.template_embedder(batch, z)
+            z = z + self.template_embedder(batch, z)
             # Note: += in the paper for the next line, not +
             z = self.msa_module(sub_batch, s_input, z)
             s = s_init + self.prev_s_embedding(self.layer_norm_prev_s(prev_s))
@@ -113,7 +113,7 @@ class TemplateEmbedder(nn.Module):
                 self.linear_a(dummy_a[..., i, :])
             for block in self.pair_stack:
                 v = block(v, single_mask)
-            u += self.layer_norm_v(v)
+            u = u + self.layer_norm_v(v)
 
         u = u / n_templates
         u = self.linear_out(torch.relu(u))
@@ -174,7 +174,7 @@ class MSAPairWeightedAveraging(nn.Module):
         b = self.linear_b(self.layer_norm_z(z))
         g = torch.sigmoid(self.linear_g(m))
 
-        b += -1e9 * ~single_mask[..., None, :, None]
+        b = b + -1e9 * ~single_mask[..., None, :, None]
 
         w = torch.softmax(b, dim=-2)
         o = torch.einsum('...ijh,...sjhc->...sihc', w, v)
@@ -255,7 +255,7 @@ class TriangleAttention(nn.Module):
 
         if self.starting_node:
             bias = bias[..., None, :, :, :]
-            bias += -1e9 * ~single_mask[..., None, None, :, None]
+            bias = bias + -1e9 * ~single_mask[..., None, None, :, None]
             q = torch.einsum('...ijhc->...ihjc', q)
             k = torch.einsum('...ikhc->...ihkc', k)
             v = torch.einsum('...ikhc->...ihkc', v)
@@ -265,7 +265,7 @@ class TriangleAttention(nn.Module):
             # I'm pretty sure this would be the correct variant for indexing
             # bias = bias[..., None, :, :].transpose(-2, -4)
             bias = bias[..., None, :, :, :].transpose(-3, -4)
-            bias += -1e9 * ~single_mask[..., None, None, :, None]
+            bias = bias + -1e9 * ~single_mask[..., None, None, :, None]
             # Layout conversion
             q = torch.einsum('...ijhc->...jhic', q)
             k = torch.einsum('...kjhc->...jhkc', k)
@@ -341,11 +341,11 @@ class PairStack(nn.Module):
         self.transition = Transition(c, n=n_transition)
 
     def forward(self, z, single_mask):
-        z += self.dropout_rowwise(self.triangle_mult_outgoing(z, single_mask))
-        z += self.dropout_rowwise(self.triangle_mult_incoming(z, single_mask))
-        z += self.dropout_rowwise(self.triangle_att_starting(z, single_mask))
-        z += self.dropout_columnwise(self.triangle_att_ending(z, single_mask))
-        z += self.transition(z)
+        z = z + self.dropout_rowwise(self.triangle_mult_outgoing(z, single_mask))
+        z = z + self.dropout_rowwise(self.triangle_mult_incoming(z, single_mask))
+        z = z + self.dropout_rowwise(self.triangle_att_starting(z, single_mask))
+        z = z + self.dropout_columnwise(self.triangle_att_ending(z, single_mask))
+        z = z + self.transition(z)
         return z
 
 
@@ -359,9 +359,9 @@ class MSAModuleBlock(nn.Module):
         self.core = PairStack(c_z, p_dropout=config.p_dropout_pairstack, n_transition=config.n_transition_pairstack, n_head=config.n_head_pairstack)
 
     def forward(self, m, z, msa_mask, single_mask):
-        z += self.opm(m, msa_mask)
-        m += self.dropout_rowwise(self.msa_pair_weighted(m, z, single_mask))
-        m += self.transition(m)
+        z = z + self.opm(m, msa_mask)
+        m = m + self.dropout_rowwise(self.msa_pair_weighted(m, z, single_mask))
+        m = m + self.transition(m)
 
         z = self.core(z, single_mask)
         return m, z
@@ -380,7 +380,7 @@ class MSAModule(nn.Module):
         msa_mask = batch.msa_features.msa_mask
         single_mask = batch.token_features.mask
         m = self.linear_m(msa_feat)
-        m += self.linear_s(s_input)[..., None, :, :]
+        m = m + self.linear_s(s_input)[..., None, :, :]
 
         for block in self.blocks:
             m, z = block(m, z, msa_mask, single_mask)
@@ -398,8 +398,8 @@ class PairFormerBlock(nn.Module):
         single_mask = token_features.mask
         block_mask = token_features.block_mask
         z = self.core(z, single_mask)
-        s += self.att_pair_bias(s, z, block_mask)
-        s += self.single_transition(s)
+        s = s + self.att_pair_bias(s, z, block_mask)
+        s = s + self.single_transition(s)
         return s, z
 
 

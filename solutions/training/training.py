@@ -1,3 +1,8 @@
+from pathlib import Path
+import time
+import ast
+import copy
+
 import torch
 import pickle
 
@@ -70,25 +75,94 @@ def mse_loss(x_out, batch_with_labels: dict):
     
     return mse
 
+def stack_trace_analysis(memory_snapshot, workspace_root='alphafold3-decoded/solutions'):
+    trace_entries = memory_snapshot['device_traces'][0]
+
+    files_to_analyze = set()
+
+    dedup_counter = 0
+    for entry in trace_entries:
+        new_frames = []
+        new_frames_ids = []
+        for frame in entry['frames']:
+            if workspace_root in frame['filename'] and not id(frame) in new_frames_ids:
+                new_frames.append(frame)
+                new_frames_ids.append(id(frame))
+            elif workspace_root in frame['filename']:
+                dedup_counter += 1
+
+        entry['frames'] = copy.deepcopy(new_frames)
+        files_to_analyze |= set(f['filename'] for f in new_frames)
+    
+    print(f'Dedup: {dedup_counter}')
+    class_ranges = {
+        f: {} for f in files_to_analyze
+    }
+    for filename in files_to_analyze:
+        src_tree = ast.parse(Path(filename).read_text())
+        for node in ast.walk(src_tree):
+            if isinstance(node, ast.ClassDef):
+                start, end = node.lineno, node.end_lineno
+                class_ranges[filename][(start, end)] = node.name
+
+    def get_class(filename, lineno):
+        for (start, end), name in class_ranges[filename].items():
+            if start <= lineno <= end:
+                return name
+        return None
+
+    for j, entry in enumerate(trace_entries):
+        for i, frame in enumerate(entry['frames']):
+            cls = get_class(frame['filename'], frame['line'])
+            frame['old_filename'] = frame['filename']
+            if cls:
+                frame['filename'] = f'{cls}.{frame["name"]} ({frame["old_filename"]})'
+            else:
+                frame['filename'] = f'{frame["name"]} ({frame["old_filename"]})'
+
+
+
+    
+
+    
 
 
 def main():
+    with open('memory_snapshot_offloaded.pkl', 'rb') as f:
+        data = pickle.load(f)
+
+    stack_trace_analysis(data)
+
+    with open('memory_snapshot_modified.pkl', 'wb') as f:
+        pickle.dump(data, f)
+
+    piece = data['device_traces'][0][500]
+    return
     # torch.cuda.memory._record_memory_history(max_entries=1_000_000)
     torch.cuda.memory._record_memory_history(
         True,
         trace_alloc_max_entries=1_000_000,
         trace_alloc_record_context=True,
     )
-    config = Config()
-    config.global_config.n_cycle = 1
-    config.evoformer_config.pairformer_config.n_blocks = 2
-    config.diffusion_config.denoising_steps = 1
 
-    # af3_dataset.extract_top1000_entries()
+    def oom_observer(device, alloc, device_alloc, device_free):
+        # snapshot right after an OOM happened
+        print('Saving memory snapshot after OOM.')
+        filename = f"oom_memory_snapshot.pkl"
+        torch.cuda.memory._dump_snapshot(filename)
+
+    torch._C._cuda_attach_out_of_memory_observer(oom_observer)
+
+    config = Config()
+    config.evoformer_config.pairformer_config.n_blocks = 1
+    config.global_config.n_cycle = 1
+
+    # t0 = time.time()
     # dataset = build_af3_dataset(config)
     # sampler = build_sampler(dataset)
     # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=8, collate_fn=collate_batch)
     # samples = next(iter(loader))
+    # print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
     # with open('test_samples.pkl', 'wb') as f:
     #     pickle.dump(samples, f)
 
@@ -97,12 +171,22 @@ def main():
 
     device = 'cuda:0'
     samples['batch'] = tree_map(lambda x: x.to(device=device), samples['batch'])
+
+    # Force initialization by accessing dynamo first
+    # _ = torch._dynamo
+    # torch._functorch.config.activation_memory_budget = 0.1
+
     model = Model(config)
     # params = torch.load('data/params/af3_pytorch.pt')
     # model.load_state_dict(params)
     model = model.to(device=device)
     model.eval()
-    x_pred = model.forward(samples['batch'])
+    # evo = torch.compile(model.evoformer)
+    with torch.no_grad():
+        evo = model.evoformer
+        evo(samples['batch'])
+
+    # model.evoformer.forward(samples['batch'])
     # loss = mse_loss(x_pred, samples)
 
     try:

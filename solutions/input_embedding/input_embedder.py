@@ -78,8 +78,8 @@ class InputEmbedder(nn.Module):
         z_init = a[..., None, :] + b[..., None, :, :]
 
         rel_enc, rel_feat = self.relative_encoding(batch)
-        z_init += rel_enc
-        z_init += self.bond_embedding(batch.bond_matrix)
+        z_init = z_init + rel_enc
+        z_init = z_init + self.bond_embedding(batch.bond_matrix)
         if torch.cuda.is_available():
             torch.cuda.nvtx.range_pop()
 

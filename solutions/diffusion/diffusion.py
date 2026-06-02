@@ -51,7 +51,7 @@ class DiffusionModule(nn.Module):
         a, (q_skip, c_skip, p_skip) = self.atom_att_enc(reference_features, r=r, s_trunk=s_trunk, z=z)
 
 
-        a += self.linear_s(self.layer_norm_s(s))
+        a = a + self.linear_s(self.layer_norm_s(s))
         a = self.diffusion_transformer(a, s, z, token_features.block_mask)
 
         a = self.layer_norm_a(a)
@@ -101,7 +101,7 @@ class DiffusionConditioning(nn.Module):
         z = torch.cat((z_trunk, rel_feat), dim=-1)
         z = self.linear_z(self.layer_norm_z(z))
         for block in self.z_transition:
-            z += block(z)
+            z = z + block(z)
 
         s = torch.cat((s_trunk, s_inputs), dim=-1)
         tf_mask = torch.ones(s.shape[-1], device=s.device, dtype=bool)
@@ -109,10 +109,10 @@ class DiffusionConditioning(nn.Module):
         s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
         # s = self.linear_s(self.layer_norm_s(s))
         n = self.fourier_embedding(t_hat)
-        s += self.linear_fourier(self.layer_norm_fourier(n))
+        s = s + self.linear_fourier(self.layer_norm_fourier(n))
 
         for block in self.s_transition:
-            s += block(s)
+            s = s + block(s)
         
         return s, z
 
