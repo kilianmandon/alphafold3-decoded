@@ -123,22 +123,35 @@ def stack_trace_analysis(memory_snapshot, workspace_root='alphafold3-decoded/sol
 
 
     
+def add_code_file_content_to_snapshot(snapshot_filename):
+    with open(snapshot_filename, 'rb') as f:
+        snapshot = pickle.load(f)
+    
+    trace_entries = snapshot['device_traces'][0]
+
+    files_to_analyze = set()
+    for entry in trace_entries:
+        for frame in entry['frames']:
+            files_to_analyze.add(frame['filename'])
+
+    file_data = {}
+    skipped_files = []
+    for filename in files_to_analyze:
+        if Path(filename).exists():
+            file_data[filename] = Path(filename).read_text()
+        elif filename not in skipped_files:
+            print(f'Skipping file {filename}')
+            skipped_files.append(filename)
+
+    snapshot['source_code'] = file_data
+    
+    with open(snapshot_filename, 'wb') as f:
+        pickle.dump(snapshot, f)
 
     
 
 
 def main():
-    with open('memory_snapshot_offloaded.pkl', 'rb') as f:
-        data = pickle.load(f)
-
-    stack_trace_analysis(data)
-
-    with open('memory_snapshot_modified.pkl', 'wb') as f:
-        pickle.dump(data, f)
-
-    piece = data['device_traces'][0][500]
-    return
-    # torch.cuda.memory._record_memory_history(max_entries=1_000_000)
     torch.cuda.memory._record_memory_history(
         True,
         trace_alloc_max_entries=1_000_000,
@@ -154,8 +167,23 @@ def main():
     torch._C._cuda_attach_out_of_memory_observer(oom_observer)
 
     config = Config()
-    config.evoformer_config.pairformer_config.n_blocks = 1
     config.global_config.n_cycle = 1
+    config.diffusion_config.denoising_steps = 1
+    # config.evoformer_config.pairformer_config.n_blocks = 1
+    # config.evoformer_config.pairformer_config.n_transition_pairstack = 1
+    # config.evoformer_config.pairformer_config.n_transition = 1
+    # config.diffusion_config.denoising_steps = 2
+    # config.global_config.c_m = 4
+    # config.global_config.c_z = 32
+    # config.global_config.c_s = 32
+    # config.evoformer_config.pairformer_config.n_head_pairstack = 1
+    # config.evoformer_config.pairformer_config.n_head_att_pair_bias = 1
+    # config.evoformer_config.msa_module_config.n_head_pairstack = 1
+    # config.evoformer_config.msa_module_config.n_transition = 1
+    # config.evoformer_config.msa_module_config.n_transition_pairstack = 1
+    # config.diffusion_config.n_head_diffusion_transformer = 1
+    # config.diffusion_config.n_block_diffusion_transformer = 1
+    # config.diffusion_config.atom_attention_config.c_token = 64
 
     # t0 = time.time()
     # dataset = build_af3_dataset(config)
@@ -163,36 +191,43 @@ def main():
     # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=8, collate_fn=collate_batch)
     # samples = next(iter(loader))
     # print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
-    # with open('test_samples.pkl', 'wb') as f:
+    # with open('test_samples_256.pkl', 'wb') as f:
     #     pickle.dump(samples, f)
 
-    with open('test_samples.pkl', 'rb') as f:
+    # Currently, only working with 256 and torch version 2.9 or 2.10
+    with open('test_samples_256.pkl', 'rb') as f:
         samples = pickle.load(f)
 
     device = 'cuda:0'
     samples['batch'] = tree_map(lambda x: x.to(device=device), samples['batch'])
 
     # Force initialization by accessing dynamo first
-    # _ = torch._dynamo
-    # torch._functorch.config.activation_memory_budget = 0.1
+    _ = torch._dynamo
+    torch._functorch.config.activation_memory_budget = 0.01
 
     model = Model(config)
     # params = torch.load('data/params/af3_pytorch.pt')
     # model.load_state_dict(params)
     model = model.to(device=device)
-    model.eval()
-    # evo = torch.compile(model.evoformer)
-    with torch.no_grad():
-        evo = model.evoformer
-        evo(samples['batch'])
+    
+    model = torch.compile(model)
+    print('Compiled.')
+
+    for i in range(5):
+        print(f'Iteration {i}...')
+        t0 = time.time()
+        x_pred = model(samples['batch'])
+        print('Forward complete.')
+        loss = mse_loss(x_pred, samples)
+        loss.backward()
+        print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
 
     # model.evoformer.forward(samples['batch'])
     # loss = mse_loss(x_pred, samples)
 
-    try:
-        torch.cuda.memory._dump_snapshot('memory_snapshot.pkl')
-    except:
-        print(f'Error saving memory snapshot.')
+    snapshot_filename = 'memory_snapshot_act_offloaded_384.pkl'
+    torch.cuda.memory._dump_snapshot(snapshot_filename)
+    add_code_file_content_to_snapshot(snapshot_filename)
     
     torch.cuda.memory._record_memory_history(enabled=None)
 

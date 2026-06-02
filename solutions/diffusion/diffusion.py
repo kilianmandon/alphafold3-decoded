@@ -106,8 +106,8 @@ class DiffusionConditioning(nn.Module):
         s = torch.cat((s_trunk, s_inputs), dim=-1)
         tf_mask = torch.ones(s.shape[-1], device=s.device, dtype=bool)
         tf_mask[415] = tf_mask[447] = False
-        s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
-        # s = self.linear_s(self.layer_norm_s(s))
+        # s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
+        s = self.linear_s(self.layer_norm_s(s))
         n = self.fourier_embedding(t_hat)
         s = s + self.linear_fourier(self.layer_norm_fourier(n))
 
