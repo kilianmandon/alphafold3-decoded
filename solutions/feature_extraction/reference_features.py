@@ -83,6 +83,7 @@ class ReferenceFeatures:
             return ref_mask
 
 
+    @torch._dynamo.disable
     def to_token_layout(self, feature):
         """
         Converts a feature from atom_layout (shape (**batch_shape, n_atoms, **feat_dims)) to 
@@ -142,6 +143,7 @@ class ReferenceFeatures:
         else:
             return feature
 
+    @torch._dynamo.disable
     def to_atom_layout(self, feature, has_atom_dimension=True):
         """
         Converts a feature from token_layout (shape (**batch_shape, n_tokens, 24, **feat_dims)) 

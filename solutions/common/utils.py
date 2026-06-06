@@ -161,6 +161,10 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
         return x.flatten(end_dim=len(batch_shape)-1)
 
 
+def static_one_hot(x: torch.Tensor, num_classes: int):
+    return (x[..., None] == torch.arange(num_classes, dtype=x.dtype, device=x.device)).float()
+
+
 def load_alphafold_input(path):
     with open(path, 'r') as f:
         data = json.load(f)

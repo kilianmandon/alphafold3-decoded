@@ -11,6 +11,7 @@ from torch.nn.attention.flex_attention import flex_attention
 
 from common.modules import AttentionPairBias, Transition
 from input_embedding.input_embedder import InputEmbedder
+import common.utils as utils
 
 
 class Evoformer(nn.Module):
@@ -102,12 +103,17 @@ class TemplateEmbedder(nn.Module):
         single_mask = batch.token_features.mask
         device = target_feat.device
 
-        dummy_a = torch.zeros(batch_shape+(n_tokens, n_tokens, n_templates, self.c_in), device=device, dtype=torch.float32)
         dummy_aatype = torch.zeros(batch_shape+(n_tokens,), device=device).long()
-        dummy_aatype = F.one_hot(dummy_aatype, 31)
-        dummy_a[..., 40:71] = dummy_aatype[..., None, :, None, :]
-        dummy_a[..., 71:102] = dummy_aatype[..., :, None, None, :]
+        dummy_aatype = utils.static_one_hot(dummy_aatype, 31)
+        dummy_aatype_left = dummy_aatype[..., None, :, None, :].broadcast_to(batch_shape+(n_tokens, n_tokens, n_templates, 31))
+        dummy_aatype_right = dummy_aatype[..., :, None, None, :].broadcast_to(batch_shape+(n_tokens, n_tokens, n_templates, 31))
+        
+        zero_start = torch.zeros(batch_shape+(n_tokens, n_tokens, n_templates, 40), device=device)
+        zero_end = torch.zeros(batch_shape+(n_tokens, n_tokens, n_templates, self.c_in-102), device=device)
+        dummy_a = torch.cat((zero_start, dummy_aatype_left, dummy_aatype_right, zero_end), dim=-1)
+
         u = torch.zeros(batch_shape+(n_tokens, n_tokens, self.c), device=device, dtype=torch.float32)
+
         for i in range(n_templates):
             v = self.linear_z(self.layer_norm_z(z)) + \
                 self.linear_a(dummy_a[..., i, :])

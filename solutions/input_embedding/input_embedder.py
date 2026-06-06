@@ -20,6 +20,7 @@ class InputEmbedder(nn.Module):
         self.r_max = config.r_max
         self.s_max = config.s_max
 
+    @torch._dynamo.disable
     def relative_encoding(self, batch: Batch):
         # Implements Algorithm 3 from the paper
         token_features = batch.token_features
