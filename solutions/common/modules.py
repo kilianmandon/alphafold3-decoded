@@ -4,6 +4,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+from common.block_sparse_tensor import ExtendedBlockMask
+
 class AdaptiveLayerNorm(nn.Module):
     def __init__(self, c_a, c_s):
         super().__init__()
@@ -70,7 +72,7 @@ class AttentionPairBias(nn.Module):
         self.adaptive = adaptive
         self.split_ada_qk = split_ada_qk
 
-    def forward(self, a, z, block_mask: BlockMask, s=None):
+    def forward(self, a, z, extended_block_mask: ExtendedBlockMask, s=None):
         batch_shape = a.shape[:-2]
         N_head = self.N_head
         N_token = a.shape[-2]
@@ -107,7 +109,7 @@ class AttentionPairBias(nn.Module):
             return score + bias[b, q_idx, kv_idx, h]
 
         q = q.contiguous(); k = k.contiguous(); v = v.contiguous()
-        o = self.flex_attention(q, k, v, score_mod=bias_score_mod, block_mask=block_mask, kernel_options={ 'BLOCK_M': 32, 'BLOCK_N': 32 })
+        o = self.flex_attention(q, k, v, score_mod=bias_score_mod, block_mask=extended_block_mask.block_mask, kernel_options={ 'BLOCK_M': 32, 'BLOCK_N': 32 })
 
         o = o.reshape(batch_shape + (N_head, N_token, c))
         o = torch.einsum('...hjc->...jhc', o)
@@ -161,9 +163,9 @@ class DiffusionTransformer(nn.Module):
         self.N_block = n_blocks
 
 
-    def forward(self, a, s, z, block_mask: BlockMask):
+    def forward(self, a, s, z, extended_block_mask: ExtendedBlockMask):
         for att_pair_block, cond_trans_block in zip(self.att_pair_bias, self.cond_trans):
-            a = a + att_pair_block(a, z, block_mask, s=s)
+            a = a + att_pair_block(a, z, extended_block_mask, s=s)
             a = a + cond_trans_block(a, s)
 
         return a

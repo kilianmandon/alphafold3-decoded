@@ -37,7 +37,7 @@ class Batch:
     bond_matrix: Array
 
 
-def tree_map(fn, x):
+def tree_map(fn, x, skip_unconvertible_entries=False):
     """
     Recursively applies a function to all elements in a nested structure of dataclasses, dicts, and tensors / arrays.
 
@@ -49,12 +49,18 @@ def tree_map(fn, x):
         return fn(x)
 
     if is_dataclass(x):
-        field_dict = {f.name: tree_map(fn, getattr(x, f.name)) for f in fields(x)}
+        field_dict = {f.name: tree_map(fn, getattr(x, f.name), skip_unconvertible_entries) for f in fields(x)}
         return type(x)(**field_dict)
 
     if isinstance(x, dict):
-        field_dict = {k: tree_map(fn, v) for k, v in x.items()}
+        field_dict = {k: tree_map(fn, v, skip_unconvertible_entries) for k, v in x.items()}
         return field_dict
+
+    if x is None:
+        return None
+
+    if skip_unconvertible_entries:
+        return x
 
     raise ValueError(f"Cannot apply tree_map to object of type {type(x)}")
 
@@ -111,6 +117,9 @@ def collate_batch(
             if k in dict_key_blacklist:
                 field_dict[k] = [b[k] for b in batch]
         return field_dict
+
+    if first is None:
+        return None
 
     if not drop_unconvertible_entries:
         raise ValueError(f"Cannot collate batch of type {type(first)}")

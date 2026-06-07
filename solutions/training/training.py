@@ -140,7 +140,7 @@ def add_code_file_content_to_snapshot(snapshot_filename):
         if Path(filename).exists():
             file_data[filename] = Path(filename).read_text()
         elif filename not in skipped_files:
-            print(f'Skipping file {filename}')
+            # print(f'Skipping file {filename}')
             skipped_files.append(filename)
 
     snapshot['source_code'] = file_data
@@ -185,17 +185,18 @@ def main():
     config.diffusion_config.n_block_diffusion_transformer = 1
     config.diffusion_config.atom_attention_config.c_token = 64
 
-    # t0 = time.time()
-    # dataset = build_af3_dataset(config)
-    # sampler = build_sampler(dataset)
-    # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=8, collate_fn=collate_batch)
-    # samples = next(iter(loader))
-    # print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
-    # with open('test_samples_256.pkl', 'wb') as f:
-    #     pickle.dump(samples, f)
+    t0 = time.time()
+    dataset = build_af3_dataset(config)
+    sampler = build_sampler(dataset)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, collate_fn=collate_batch)
+    samples = next(iter(loader))
+    # samples['batch'].reference_features.setup_block_mask()
+    print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
+    with open('test_samples_384.pkl', 'wb') as f:
+        pickle.dump(samples, f)
 
     # Currently, only working with 256 and torch version 2.9 or 2.10
-    with open('test_samples_256.pkl', 'rb') as f:
+    with open('test_samples_384.pkl', 'rb') as f:
         samples = pickle.load(f)
 
     device = 'cuda:0'
@@ -203,16 +204,18 @@ def main():
 
     # Force initialization by accessing dynamo first
     # _ = torch._dynamo
-    # torch._functorch.config.activation_memory_budget = 0.01
+    # torch._functorch.config.activation_memory_budget = 0.05
 
     model = Model(config)
     # params = torch.load('data/params/af3_pytorch.pt')
     # model.load_state_dict(params)
     model = model.to(device=device)
     
-    model = torch.compile(model, backend='aot_eager')
+    model.compile(fullgraph=True)
     print('Compiled.')
     batch = samples['batch']
+    batch.reference_features.setup_block_mask()
+    batch.token_features.setup_block_mask()
     n_seq = batch.token_features.mask.shape[1]
 
     for i in range(5):

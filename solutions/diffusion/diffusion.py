@@ -1,3 +1,4 @@
+import numpy as np
 from torch import nn
 import torch
 import tqdm
@@ -149,6 +150,11 @@ class DiffusionSampler(nn.Module):
         self.rho = diffusion_config.rho
 
         self.center_random_aug = CenterRandomAugmentation(diffusion_config.s_trans_center_randaug)
+        self.setup_gamma_schedule()
+
+    def setup_gamma_schedule(self):
+        noise_levels = self.noise_schedule(np.linspace(0, 1, self.denoising_steps+1))
+        self.gamma_schedule = [self.gamma_0 if c > self.gamma_min else 0 for c in noise_levels[1:]]
 
     def noise_schedule(self, t):
         return self.sigma_data * (self.s_max ** (1/self.rho) + t * (self.s_min**(1/self.rho) - self.s_max**(1/self.rho))) ** self.rho
@@ -166,7 +172,7 @@ class DiffusionSampler(nn.Module):
         else:
             x = noise_levels[0] * torch.randn(x_shape, device=device)
 
-        for i, (c_prev, c) in tqdm.tqdm(enumerate(zip(noise_levels[:-1], noise_levels[1:])), total=self.denoising_steps):
+        for i, (c_prev, c) in enumerate(zip(noise_levels[:-1], noise_levels[1:])):
 
             if noise_data is not None:
                 rand_rot = noise_data['aug_rot'][i].to(dtype=torch.float32)
@@ -176,7 +182,7 @@ class DiffusionSampler(nn.Module):
 
             x = self.center_random_aug(x, reference_features, rand_rot=rand_rot, rand_trans=rand_trans)
 
-            gamma = self.gamma_0 if c > self.gamma_min else 0
+            gamma = self.gamma_schedule[i]
             t_hat = c_prev * (gamma + 1)
 
             if noise_data is not None:

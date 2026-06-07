@@ -3,7 +3,7 @@ from functools import cached_property
 import math
 
 import numpy as np
-from torch.nn.attention.flex_attention import create_block_mask, BlockMask
+from torch.nn.attention.flex_attention import create_block_mask
 from torch.nn import functional as F
 import rdkit
 import torch
@@ -16,6 +16,7 @@ from atomworks.ml.utils.token import get_token_starts
 from biotite.structure import AtomArray
 
 import common.utils as utils
+from common.block_sparse_tensor import ExtendedBlockMask
 
 
 Array = np.ndarray | torch.Tensor
@@ -34,6 +35,7 @@ class ReferenceFeatures:
     mask: Array # Indicates presence of an atom
     ref_space_uid: Array # Unique ID of the corresponding residue
     token_index: Array # Index of the corresponding token
+    block_mask: ExtendedBlockMask = None
 
     @property
     def atom_count(self):
@@ -83,7 +85,6 @@ class ReferenceFeatures:
             return ref_mask
 
 
-    @torch._dynamo.disable
     def to_token_layout(self, feature):
         """
         Converts a feature from atom_layout (shape (**batch_shape, n_atoms, **feat_dims)) to 
@@ -143,7 +144,6 @@ class ReferenceFeatures:
         else:
             return feature
 
-    @torch._dynamo.disable
     def to_atom_layout(self, feature, has_atom_dimension=True):
         """
         Converts a feature from token_layout (shape (**batch_shape, n_tokens, 24, **feat_dims)) 
@@ -177,8 +177,7 @@ class ReferenceFeatures:
         else:   
             return out
 
-    @cached_property
-    def block_mask(self) -> BlockMask:
+    def setup_block_mask(self) -> None:
         """
         Creates a local attention block mask for use with flex_attention. Atoms are split into overlapping blocks 
         of size 128, and attend only other atoms within their block during atom attention. Concretely, 
@@ -236,9 +235,11 @@ class ReferenceFeatures:
             return (q < unpadded_atom_count[b]) & (left_bounds[b, q//32] <= k) & (k < right_bounds[b, q//32])
         
         block_mask = create_block_mask(mask_mod, batch_size, None, self.atom_count, self.atom_count, self.mask.device)
+        block_mask = ExtendedBlockMask(block_mask)
 
         """ End of your code """
-        return block_mask
+
+        self.block_mask = block_mask
 
 
 class CalculateReferenceFeatures(Transform):

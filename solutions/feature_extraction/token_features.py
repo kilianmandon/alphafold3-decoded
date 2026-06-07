@@ -6,10 +6,11 @@ from atomworks.constants import UNKNOWN_AA, STANDARD_RNA, UNKNOWN_RNA, STANDARD_
 from atomworks.ml.transforms.base import Transform
 from atomworks.ml.utils.token import get_token_starts
 import torch
-from torch.nn.attention.flex_attention import create_block_mask, BlockMask
+from torch.nn.attention.flex_attention import create_block_mask
 
 from common.residue_constants import AF3_TOKENS_MAP
 import common.utils as utils
+from common.block_sparse_tensor import ExtendedBlockMask
 
 Array = np.ndarray | torch.Tensor
 
@@ -58,6 +59,7 @@ class TokenFeatures:
     is_dna: Array
     is_protein: Array
     is_ligand: Array
+    block_mask: ExtendedBlockMask = None
 
 
     @property
@@ -72,8 +74,7 @@ class TokenFeatures:
             return torch.sum(self.mask, dim=-1)
         
 
-    @cached_property
-    def block_mask(self) -> BlockMask:
+    def setup_block_mask(self) -> ExtendedBlockMask:
         block_mask = None
 
         """ 
@@ -89,10 +90,11 @@ class TokenFeatures:
         
         batch_size = mask.shape[0]
         block_mask = create_block_mask(mask_mod, batch_size, None, self.token_count, self.token_count, self.mask.device)
+        block_mask = ExtendedBlockMask(block_mask)
 
         """ End of your code """
 
-        return block_mask
+        self.block_mask = block_mask
     
 
 

@@ -3,39 +3,11 @@ from torch.nn.attention.flex_attention import BlockMask
 
 import common.utils as utils
 
-
-
-class BlockSparseTensor:
-    def __init__(self, physical: torch.Tensor, block_size: int, lookup_table: torch.Tensor, inverse_lookup_indices: tuple[torch.Tensor, torch.Tensor, torch.Tensor]):
-        self.physical = physical
-        self.block_size = block_size
-        self.lookup_table = lookup_table
-        self.inverse_lookup_indices = inverse_lookup_indices
-
-
-    @staticmethod
-    def from_broadcast(x: torch.Tensor, block_mask: BlockMask, batch_shape):
-        x = utils.unify_batch_dimension(x, batch_shape)
-
-        if x.dim() == 3:
-            # Add explicit feature dimension
-            x = x.unsqueeze(-1)
-        
-        if x.dim() != 4:
-            raise ValueError('BlockSparseTensors can only be constructed from tensors with dimension 2 or 3, excluding batch dimensions.')
-
-        batch_size, _, n_blocks = block_mask.kv_num_blocks.shape
-        block_size = block_mask.BLOCK_SIZE[0]
-        n_tokens = n_blocks * block_size
-
-        x = x.expand(batch_size, n_tokens, n_tokens, -1)
-
-        lookup_table = BlockSparseTensor._build_lookup_table(block_mask)
-        inverse_indices = BlockSparseTensor._build_inverse_lookup_indices(block_mask, lookup_table)
-
-        physical = x[inverse_indices]
-        return BlockSparseTensor(physical, block_size, lookup_table, inverse_indices)
-
+class ExtendedBlockMask:
+    def __init__(self, block_mask: BlockMask):
+        self.block_mask = block_mask
+        self.lookup_table: torch.IntTensor = ExtendedBlockMask._build_lookup_table(block_mask)
+        self.inverse_lookup_indices: tuple[torch.Tensor, torch.Tensor, torch.Tensor] = ExtendedBlockMask._build_inverse_lookup_indices(block_mask, self.lookup_table)
 
     @staticmethod
     def _build_inverse_lookup_indices(block_mask: BlockMask, lookup_table: torch.Tensor):
@@ -78,6 +50,7 @@ class BlockSparseTensor:
             torch.cumsum(kv_num_blocks_no_heads.flatten()[:-1], dim=0),
             (1, 0)
         )
+        bq_lookup = torch.zeros((batch_size, n_blocks, 1), dtype=int, device=device)
         bq_lookup = bq_lookup.reshape(batch_size, n_blocks, 1)
 
         k_impact = torch.argsort(block_mask.kv_indices[:, 0, :, :], dim=-1)
@@ -89,9 +62,47 @@ class BlockSparseTensor:
         return lookup_table
 
 
+class BlockSparseTensor:
+    def __init__(self, physical: torch.Tensor, block_size: torch.IntTensor, block_mask_with_metadata: ExtendedBlockMask):
+        self.physical = physical
+        self.block_size = block_size
+
+        self.block_mask = block_mask_with_metadata
+        self.lookup_table = block_mask_with_metadata.lookup_table
+        self.inverse_lookup_indices = block_mask_with_metadata.inverse_lookup_indices
+
+
+    @staticmethod
+    def from_broadcast(x: torch.Tensor, extended_block_mask: ExtendedBlockMask, batch_shape):
+        x = utils.unify_batch_dimension(x, batch_shape)
+
+        if x.dim() == 3:
+            # Add explicit feature dimension
+            x = x.unsqueeze(-1)
+        
+        if x.dim() != 4:
+            raise ValueError('BlockSparseTensors can only be constructed from tensors with dimension 2 or 3, excluding batch dimensions.')
+
+        block_mask = extended_block_mask.block_mask
+        batch_size, _, n_blocks = block_mask.kv_num_blocks.shape
+        block_size = torch.tensor(block_mask.BLOCK_SIZE[0], device=x.device, dtype=int)
+        n_tokens = n_blocks * block_size
+
+        x = x.expand(batch_size, n_tokens, n_tokens, -1)
+
+        inverse_indices = extended_block_mask.inverse_lookup_indices
+        physical = x[inverse_indices]
+
+        return BlockSparseTensor(physical, block_size, extended_block_mask)
+
+
+
     def __getitem__(self, index):
         b, q, k, c = index
         W = self.block_size
+        zero = torch.tensor(0, device=W.device, dtype=int)
+        # return self.lookup_table[zero, zero, zero]
+        # return self.physical[zero, q%W, k%W, c]
         return self.physical[self.lookup_table[b, q//W, k//W], q%W, k%W, c]
 
     def _unwrap(self, other):
@@ -100,7 +111,7 @@ class BlockSparseTensor:
         return other
 
     def _wrap(self, tensor):
-        return BlockSparseTensor(tensor, self.block_size, self.lookup_table, self.inverse_lookup_indices)
+        return BlockSparseTensor(tensor, self.block_size, self.block_mask)
 
     def __add__(self, other):
         return self._wrap(self.physical + self._unwrap(other))

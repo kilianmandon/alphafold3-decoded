@@ -1,7 +1,7 @@
 import copy
 
 from config import Config, MSAModuleConfig, PairformerConfig, TemplateModuleConfig
-from feature_extraction.feature_extraction import Batch
+from feature_extraction.feature_extraction import Batch, tree_map
 from feature_extraction.token_features import TokenFeatures
 import torch
 from torch import nn
@@ -59,10 +59,8 @@ class Evoformer(nn.Module):
         prev_s = torch.zeros(batch_shape+(N_token, c_s), device=device, dtype=torch.float32)
         prev_z = torch.zeros(batch_shape+(N_token, N_token, c_z), device=device, dtype=torch.float32)
 
-        for i in tqdm.tqdm(range(self.n_cycle)):
-            if torch.cuda.is_available():
-                torch.cuda.nvtx.range_push(f'Evoformer {i}')
-            sub_batch = copy.deepcopy(batch)
+        for i in range(self.n_cycle):
+            sub_batch = tree_map(lambda x: torch.clone(x), batch, skip_unconvertible_entries=True)
             sub_batch.msa_features.msa_feat = sub_batch.msa_features.msa_feat[..., i]
             sub_batch.msa_features.msa_mask = sub_batch.msa_features.msa_mask[..., i]
 
@@ -74,8 +72,6 @@ class Evoformer(nn.Module):
 
             s, z = self.pairformer(s, z, token_features)
             prev_s, prev_z = s, z
-            if torch.cuda.is_available():
-                torch.cuda.nvtx.range_pop()
 
         return s_input, s, z, rel_feat
 
@@ -416,6 +412,6 @@ class PairFormer(nn.Module):
                                     for _ in range(config.n_blocks)])
 
     def forward(self, s, z, token_features: TokenFeatures):
-        for block in tqdm.tqdm(self.blocks):
+        for block in self.blocks:
             s, z = block(s, z, token_features)
         return s, z
