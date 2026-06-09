@@ -1,3 +1,4 @@
+import functools
 import json
 import math
 import numpy as np
@@ -7,6 +8,8 @@ from common.block_sparse_tensor import BlockSparseTensor
 from atomworks.enums import ChainType
 from atomworks.io.parser import parse_atom_array
 from atomworks.io.tools.inference import components_to_atom_array
+
+from torch.utils.checkpoint import create_selective_checkpoint_contexts, CheckpointPolicy
 
 
 Array = np.ndarray | torch.Tensor
@@ -163,6 +166,36 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
 
 def static_one_hot(x: torch.Tensor, num_classes: int):
     return (x[..., None] == torch.arange(num_classes, dtype=x.dtype, device=x.device)).float()
+
+def activation_checkpointing(f):
+    # aten = torch.ops.aten
+    # compute_intensive_ops = [  
+    #     aten.mm.default,
+    #     aten.convolution,
+    #     aten.convolution_backward,
+    #     aten.bmm,
+    #     aten.addmm,
+    #     aten._scaled_dot_product_flash_attention,
+    #     aten._scaled_dot_product_efficient_attention,
+    #     aten._flash_attention_forward,
+    #     aten._efficient_attention_forward,
+    #     aten.upsample_bilinear2d,
+    #     aten._scaled_mm
+    # ] 
+    # def policy_fn(ctx, op, *args, **kwargs):
+    #     if op in compute_intensive_ops:
+    #         return CheckpointPolicy.MUST_SAVE
+    #     else:
+    #         return CheckpointPolicy.PREFER_RECOMPUTE
+
+    # context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
+
+    if torch.is_grad_enabled():
+        def helper(*args, **kwargs):
+            return torch.utils.checkpoint.checkpoint(lambda: f(*args, **kwargs), use_reentrant=False)
+        return helper
+    else:
+        return f
 
 
 def load_alphafold_input(path):

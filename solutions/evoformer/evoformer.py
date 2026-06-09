@@ -342,6 +342,7 @@ class PairStack(nn.Module):
             c_z=c, c=c_att, n_head=n_head, starting_node=False)
         self.transition = Transition(c, n=n_transition)
 
+    @utils.activation_checkpointing
     def forward(self, z, single_mask):
         z = z + self.dropout_rowwise(self.triangle_mult_outgoing(z, single_mask))
         z = z + self.dropout_rowwise(self.triangle_mult_incoming(z, single_mask))

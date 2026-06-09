@@ -169,21 +169,21 @@ def main():
     config = Config()
     config.global_config.n_cycle = 1
     config.diffusion_config.denoising_steps = 1
-    config.evoformer_config.pairformer_config.n_blocks = 1
-    config.evoformer_config.pairformer_config.n_transition_pairstack = 1
-    config.evoformer_config.pairformer_config.n_transition = 1
-    config.diffusion_config.denoising_steps = 2
-    config.global_config.c_m = 4
-    config.global_config.c_z = 32
-    config.global_config.c_s = 32
-    config.evoformer_config.pairformer_config.n_head_pairstack = 1
-    config.evoformer_config.pairformer_config.n_head_att_pair_bias = 1
-    config.evoformer_config.msa_module_config.n_head_pairstack = 1
-    config.evoformer_config.msa_module_config.n_transition = 1
-    config.evoformer_config.msa_module_config.n_transition_pairstack = 1
-    config.diffusion_config.n_head_diffusion_transformer = 1
-    config.diffusion_config.n_block_diffusion_transformer = 1
-    config.diffusion_config.atom_attention_config.c_token = 64
+    # config.evoformer_config.pairformer_config.n_blocks = 1
+    # config.evoformer_config.pairformer_config.n_transition_pairstack = 1
+    # config.evoformer_config.pairformer_config.n_transition = 1
+    # config.diffusion_config.denoising_steps = 2
+    # config.global_config.c_m = 4
+    # config.global_config.c_z = 32
+    # config.global_config.c_s = 32
+    # config.evoformer_config.pairformer_config.n_head_pairstack = 1
+    # config.evoformer_config.pairformer_config.n_head_att_pair_bias = 1
+    # config.evoformer_config.msa_module_config.n_head_pairstack = 1
+    # config.evoformer_config.msa_module_config.n_transition = 1
+    # config.evoformer_config.msa_module_config.n_transition_pairstack = 1
+    # config.diffusion_config.n_head_diffusion_transformer = 1
+    # config.diffusion_config.n_block_diffusion_transformer = 1
+    # config.diffusion_config.atom_attention_config.c_token = 64
 
     t0 = time.time()
     dataset = build_af3_dataset(config)
@@ -203,8 +203,9 @@ def main():
     samples['batch'] = tree_map(lambda x: x.to(device=device), samples['batch'])
 
     # Force initialization by accessing dynamo first
+    # Currently only works with export TORCHINDUCTOR_MIX_ORDER_REDUCTION=0
     # _ = torch._dynamo
-    # torch._functorch.config.activation_memory_budget = 0.05
+    # torch._functorch.config.activation_memory_budget = 0.99
 
     model = Model(config)
     # params = torch.load('data/params/af3_pytorch.pt')
@@ -213,16 +214,18 @@ def main():
     
     model.compile(fullgraph=True)
     print('Compiled.')
+
     batch = samples['batch']
     batch.reference_features.setup_block_mask()
     batch.token_features.setup_block_mask()
     n_seq = batch.token_features.mask.shape[1]
 
-    for i in range(5):
+    for i in range(1):
         print(f'Iteration {i}...')
         t0 = time.time()
         x_pred = model(samples['batch'])
         print('Forward complete.')
+        # loss = x_pred[0].sum()
         loss = mse_loss(x_pred, samples)
         loss.backward()
         print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
@@ -230,7 +233,7 @@ def main():
     # model.evoformer.forward(samples['batch'])
     # loss = mse_loss(x_pred, samples)
 
-    snapshot_filename = 'memory_snapshot_act_offloaded_384.pkl'
+    snapshot_filename = 'memory_snapshot_pair_offloaded_compiled_48_blocks.pkl'
     torch.cuda.memory._dump_snapshot(snapshot_filename)
     add_code_file_content_to_snapshot(snapshot_filename)
     
