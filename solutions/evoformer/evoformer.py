@@ -361,6 +361,7 @@ class MSAModuleBlock(nn.Module):
         self.transition = Transition(c_m, config.n_transition)
         self.core = PairStack(c_z, p_dropout=config.p_dropout_pairstack, n_transition=config.n_transition_pairstack, n_head=config.n_head_pairstack)
 
+    @utils.activation_checkpointing
     def forward(self, m, z, msa_mask, single_mask):
         z = z + self.opm(m, msa_mask)
         m = m + self.dropout_rowwise(self.msa_pair_weighted(m, z, single_mask))

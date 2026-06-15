@@ -39,13 +39,13 @@ class DiffusionModule(nn.Module):
 
         self.sigma_data = sigma_data
 
-    def forward(self, x_noisy, t_hat, s_inputs, s_trunk, z_trunk, rel_enc, batch: Batch):
+    def forward(self, x_noisy, t_hat, s_input, s_trunk, z_trunk, rel_feat, batch: Batch):
         # x_noisy has shape (**batch_shape, N_blocks, 32, 3)
         # t_hat has shape (**batch_shape, )
 
         reference_features = batch.reference_features
         token_features = batch.token_features
-        s, z = self.diffusion_conditioning(t_hat, s_inputs, s_trunk, z_trunk, rel_enc)
+        s, z = self.diffusion_conditioning(t_hat, s_input, s_trunk, z_trunk, rel_feat)
         r=x_noisy / torch.sqrt(t_hat**2+self.sigma_data**2)[..., None, None]
 
 
@@ -98,13 +98,13 @@ class DiffusionConditioning(nn.Module):
         x = c_noise * self.fourier_w + self.fourier_b
         return torch.cos(2 * torch.pi * x)
 
-    def forward(self, t_hat, s_inputs, s_trunk, z_trunk, rel_feat):
+    def forward(self, t_hat, s_input, s_trunk, z_trunk, rel_feat):
         z = torch.cat((z_trunk, rel_feat), dim=-1)
         z = self.linear_z(self.layer_norm_z(z))
         for block in self.z_transition:
             z = z + block(z)
 
-        s = torch.cat((s_trunk, s_inputs), dim=-1)
+        s = torch.cat((s_trunk, s_input), dim=-1)
         tf_mask = torch.ones(s.shape[-1], device=s.device, dtype=bool)
         tf_mask[415] = tf_mask[447] = False
         # s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
@@ -159,7 +159,7 @@ class DiffusionSampler(nn.Module):
     def noise_schedule(self, t):
         return self.sigma_data * (self.s_max ** (1/self.rho) + t * (self.s_min**(1/self.rho) - self.s_max**(1/self.rho))) ** self.rho
 
-    def forward(self, diffusion_module, s_inputs, s_trunk, z_trunk, rel_enc, batch: Batch, noise_data=None):
+    def forward(self, diffusion_module, s_input, s_trunk, z_trunk, rel_feat, batch: Batch, noise_data=None):
         reference_features = batch.reference_features
         batch_shape = s_trunk.shape[:-2]
         device = s_trunk.device
@@ -191,7 +191,7 @@ class DiffusionSampler(nn.Module):
                 noise = self.noise_scale * torch.sqrt(t_hat**2 - c_prev**2) * torch.randn(x_shape, device=device)
 
             x_noisy = x+noise
-            x_denoised = diffusion_module.forward(x_noisy, t_hat, s_inputs, s_trunk, z_trunk, rel_enc, batch)
+            x_denoised = diffusion_module.forward(x_noisy, t_hat, s_input, s_trunk, z_trunk, rel_feat, batch)
 
 
             delta = (x_noisy-x_denoised)/t_hat

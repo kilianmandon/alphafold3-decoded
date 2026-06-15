@@ -33,6 +33,17 @@ def simple_loading_fn(raw_data):
 
 
 
+def af3_pipeline_none_on_error(config, is_inference=False):
+    pipeline = custom_af3_pipeline(config, is_inference=is_inference)
+    def apply(*args, **kwargs):
+        try:
+            return pipeline(*args, **kwargs)
+        except Exception as e:
+            print('Skipping entry due to error')
+            print(e)
+            return None
+    return apply
+
 
 
 
@@ -56,7 +67,7 @@ def build_af3_dataset(config: Config):
                 # Exclude ligands from AF3 excluded set:
                 "~(q_pn_unit_non_polymer_res_names.notnull() and q_pn_unit_non_polymer_res_names.str.contains('${af3_excluded_ligands_regex}', regex=True))",
             ],
-            transform=custom_af3_pipeline(config, is_inference=False),
+            transform=af3_pipeline_none_on_error(config, is_inference=False),
             save_failed_examples_to_dir=None
         ),
         # Binary interfaces
@@ -67,7 +78,7 @@ def build_af3_dataset(config: Config):
             loader=create_loader_with_query_pn_units(pn_unit_iid_colnames=["pn_unit_1_iid", "pn_unit_2_iid"],
                                                      base_path='data/datasets/pdb_mirror', extension='.cif.gz',
                                                      sharding_pattern='/1:3/', path_colname='pdb_id'),
-            transform=custom_af3_pipeline(config, is_inference=False),
+            transform=af3_pipeline_none_on_error(config, is_inference=False),
             filters=[
                 "deposition_date < '2022-01-01'",
                 "resolution < 5.0 and ~method.str.contains('NMR')",

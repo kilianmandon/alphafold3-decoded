@@ -167,7 +167,7 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
 def static_one_hot(x: torch.Tensor, num_classes: int):
     return (x[..., None] == torch.arange(num_classes, dtype=x.dtype, device=x.device)).float()
 
-def activation_checkpointing(f):
+def activation_checkpointing(f=None, *, checkpoint_by_default=True):
     # aten = torch.ops.aten
     # compute_intensive_ops = [  
     #     aten.mm.default,
@@ -190,12 +190,19 @@ def activation_checkpointing(f):
 
     # context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
 
-    if torch.is_grad_enabled():
+    def decorator(f):
         def helper(*args, **kwargs):
-            return torch.utils.checkpoint.checkpoint(lambda: f(*args, **kwargs), use_reentrant=False)
+            do_checkpoint = kwargs.pop('activation_checkpointing', checkpoint_by_default) and torch.is_grad_enabled()
+            if do_checkpoint:
+                return torch.utils.checkpoint.checkpoint(lambda: f(*args, **kwargs), use_reentrant=False)
+            else:
+                return f(*args, **kwargs)
         return helper
+
+    if f is not None:
+        return decorator(f)
     else:
-        return f
+        return decorator
 
 
 def load_alphafold_input(path):

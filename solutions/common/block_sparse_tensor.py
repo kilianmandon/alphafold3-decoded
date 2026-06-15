@@ -91,6 +91,7 @@ class BlockSparseTensor:
         x = x.expand(batch_size, n_tokens, n_tokens, -1)
 
         inverse_indices = extended_block_mask.inverse_lookup_indices
+        # TODO: This has huge allocations during the backward pass. 
         physical = x[inverse_indices]
 
         return BlockSparseTensor(physical, block_size, extended_block_mask)
