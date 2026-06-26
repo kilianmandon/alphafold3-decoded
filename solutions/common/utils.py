@@ -92,7 +92,11 @@ def round_to_bucket(v: int) -> int:
     Returns:
         int: The smallest bucket size that fits the tokens.
     """
-    buckets = np.array([256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072,
+    # buckets = np.array([256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072,
+    #                     3584, 4096, 4608, 5120])
+
+    # Added 384 for training
+    buckets = np.array([256, 384, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072,
                         3584, 4096, 4608, 5120])
 
     selected_bucket = None
@@ -182,23 +186,23 @@ def activation_checkpointing(f=None, *, checkpoint_by_default=True):
     #     aten.upsample_bilinear2d,
     #     aten._scaled_mm
     # ] 
-    # def policy_fn(ctx, op, *args, **kwargs):
-    #     if op in compute_intensive_ops:
-    #         return CheckpointPolicy.MUST_SAVE
-    #     else:
-    #         return CheckpointPolicy.PREFER_RECOMPUTE
-
-    # context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
-
+    compute_intensive_ops = []
+    def policy_fn(ctx, op, *args, **kwargs):
+        # if 'flex' in str(op):
+        #     print(op)
+        if op in compute_intensive_ops:
+            return CheckpointPolicy.MUST_SAVE
+        else:
+            return CheckpointPolicy.PREFER_RECOMPUTE
+    context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
     def decorator(f):
         def helper(*args, **kwargs):
             do_checkpoint = kwargs.pop('activation_checkpointing', checkpoint_by_default) and torch.is_grad_enabled()
             if do_checkpoint:
-                return torch.utils.checkpoint.checkpoint(lambda: f(*args, **kwargs), use_reentrant=False)
+                return torch.utils.checkpoint.checkpoint(f, *args, use_reentrant=False, context_fn=context_fn, **kwargs)
             else:
                 return f(*args, **kwargs)
         return helper
-
     if f is not None:
         return decorator(f)
     else:

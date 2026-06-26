@@ -1,5 +1,6 @@
 from torch.nn.attention.flex_attention import BlockMask, flex_attention
 import common.utils as utils
+from common.utils import activation_checkpointing
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -133,6 +134,7 @@ class Transition(nn.Module):
         self.linear_b = nn.Linear(c, n*c, bias=False)
         self.linear_out = nn.Linear(n*c, c, bias=False)
 
+    @activation_checkpointing(checkpoint_by_default=False)
     def forward(self, x):
         x = self.layer_norm(x)
         a = self.linear_a(x)

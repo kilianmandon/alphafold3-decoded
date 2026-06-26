@@ -61,7 +61,9 @@ def mse_loss(x_out, x_gt, x_gt_mask, batch: Batch):
     w = batch.reference_features.to_atom_layout(w, has_atom_dimension=False)
     w = w * batch.reference_features.mask * x_gt_mask
 
-    x_gt_aligned = weighted_align(x_gt, x_out, w)
+    with torch.autocast(device_type="cuda", enabled=False):
+        x_gt_aligned = weighted_align(x_gt, x_out, w)
+
     mse = 1/3 * torch.sum(w * (x_out - x_gt_aligned).square().sum(dim=-1), axis=-1) / x_gt_mask.sum(dim=-1)
     
     return mse
@@ -101,6 +103,7 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     device = batch.reference_features.positions.device
 
     s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
+    print('Evoformer complete')
 
     x_gt = [torch.tensor(data['atom_array'].coord, device=device) for data in batch_with_labels["original_data"]]
     x_gt = utils.pad_to_shape(collate_batch(x_gt), x_gt_shape)
@@ -116,15 +119,9 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     def expand_batch_to_diffusion_shape(x):
         return x[None, ...].broadcast_to((diffusion_batch_size,) + x.shape)
 
-    # Need to be reconfigured after expanding the batch dimension
-    batch.reference_features.block_mask = None
-    batch.token_features.block_mask = None
 
-    batch = tree_map(expand_batch_to_diffusion_shape, batch)
+    batch = tree_map(expand_batch_to_diffusion_shape, batch, skip_unconvertible_entries=True)
     s_input, s_trunk, z_trunk, rel_feat = tree_map(expand_batch_to_diffusion_shape, [s_input, s_trunk, z_trunk, rel_feat])
-
-    batch.reference_features.setup_block_mask()
-    batch.token_features.setup_block_mask()
 
 
     x_gt_randaug = model.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
@@ -174,16 +171,14 @@ def main():
     t0 = time.time()
     dataset = build_af3_dataset(config)
     sampler = build_sampler(dataset)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, collate_fn=collate_batch)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=2, sampler=sampler, num_workers=0, collate_fn=collate_batch)
     samples = next(iter(loader))
-    # samples['batch'].reference_features.setup_block_mask()
     print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
-    with open('test_samples_384.pkl', 'wb') as f:
-        pickle.dump(samples, f)
+    # with open('test_samples_384.pkl', 'wb') as f:
+    #     pickle.dump(samples, f)
 
-    # Currently, only working with 256 and torch version 2.9 or 2.10
-    with open('test_samples_384.pkl', 'rb') as f:
-        samples = pickle.load(f)
+    # with open('test_samples_384.pkl', 'rb') as f:
+    #     samples = pickle.load(f)
 
     device = 'cuda:0'
     samples['batch'] = tree_map(lambda x: x.to(device=device), samples['batch'])
@@ -198,26 +193,31 @@ def main():
     # model.load_state_dict(params)
     model = model.to(device=device)
     
-    # model.compile(fullgraph=True)
-    # print('Compiled.')
+    # model.evoformer.compile(fullgraph=True)
+    # model.diffusion_module.compile(fullgraph=True)
+    torch.compiler.reset()
+    # model.regional_compile()
 
     batch = samples['batch']
-    batch.reference_features.setup_block_mask()
+    diffusion_batch_size=24
+    batch.reference_features.setup_block_mask(num_diffusion_samples=diffusion_batch_size)
     batch.token_features.setup_block_mask()
     n_seq = batch.token_features.mask.shape[1]
 
-    for i in range(1):
+    # TODO: Manage diffusion BST memory demand, check for correctness (does checkpointing use kwargs?)
+
+
+    for i in range(5):
         print(f'Iteration {i}...')
-        t0 = time.time()
-        loss = training_forward(model, samples, config, diffusion_batch_size=4)
-        print('Forward complete.')
-        loss.backward()
-        print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            t0 = time.time()
+            loss = training_forward(model, samples, config, diffusion_batch_size=diffusion_batch_size)
+            print('Forward complete.')
+            loss.backward()
+            print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
 
-    # model.evoformer.forward(samples['batch'])
-    # loss = mse_loss(x_pred, samples)
 
-    snapshot_filename = 'memory_snapshot_pair_msa_mod_offloaded_48_blocksx4.pkl'
+    snapshot_filename = f'memory_snapshot_x{diffusion_batch_size}_small_regional_compile_bf16_b2.pkl'
     torch.cuda.memory._dump_snapshot(snapshot_filename)
     add_code_file_content_to_snapshot(snapshot_filename)
     
@@ -232,8 +232,9 @@ def test():
     return s
 
 if __name__=='__main__':
-    with torch.autograd.detect_anomaly():
-        main()
+    # Use this to get frame-tracing for allocations in backward pass
+    # with torch.autograd.detect_anomaly():
+    main()
 
 
 

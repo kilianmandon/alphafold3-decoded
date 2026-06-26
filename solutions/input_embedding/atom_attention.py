@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from config import AtomAttentionConfig
 from feature_extraction.reference_features import ReferenceFeatures
-from common.block_sparse_tensor import BlockSparseTensor
+from common.block_sparse_tensor import BlockSparseTensor, ExtendedBlockMask
 from common.modules import DiffusionTransformer
 
 import common.utils as utils
@@ -57,10 +57,9 @@ class AtomAttentionEncoder(nn.Module):
             self.trunk_linear_r = nn.Linear(3, c_atom, bias=False)
 
 
-    def forward(self, reference_features: ReferenceFeatures, r=None, s_trunk=None, z=None):
+    def forward(self, reference_features: ReferenceFeatures, block_mask: ExtendedBlockMask, r=None, s_trunk=None, z=None):
         ref_space_uid = reference_features.ref_space_uid
         ref_pos = reference_features.positions
-        block_mask = reference_features.block_mask
         batch_shape = ref_space_uid.shape[:-1]
 
         single_cond = self.per_atom_cond(reference_features)

@@ -35,7 +35,8 @@ class ReferenceFeatures:
     mask: Array # Indicates presence of an atom
     ref_space_uid: Array # Unique ID of the corresponding residue
     token_index: Array # Index of the corresponding token
-    block_mask: ExtendedBlockMask = None
+    block_mask: ExtendedBlockMask = None # For use in Evoformer (InputEmbedder)
+    block_mask_diffusion: ExtendedBlockMask = None # For use in DiffusionModule (additional num_samples dimension)
 
     @property
     def atom_count(self):
@@ -177,7 +178,7 @@ class ReferenceFeatures:
         else:   
             return out
 
-    def setup_block_mask(self) -> None:
+    def setup_block_mask(self, num_diffusion_samples=None) -> None:
         """
         Creates a local attention block mask for use with flex_attention. Atoms are split into overlapping blocks 
         of size 128, and attend only other atoms within their block during atom attention. Concretely, 
@@ -193,6 +194,8 @@ class ReferenceFeatures:
         n_blocks = self.atom_count // 32
         # unpadded_atom_count has shape (batch_size,)
         unpadded_atom_count = utils.unify_batch_dimension(self.unpadded_atom_count, batch_shape) 
+
+        num_diffusion_samples = num_diffusion_samples or 1
 
         block_mask = None
 
@@ -233,13 +236,21 @@ class ReferenceFeatures:
 
         def mask_mod(b, h, q, k):
             return (q < unpadded_atom_count[b]) & (left_bounds[b, q//32] <= k) & (k < right_bounds[b, q//32])
+
+        def mask_mod_diffusion(b, h, q, k):
+            b = b % batch_size
+            return (q < unpadded_atom_count[b]) & (left_bounds[b, q//32] <= k) & (k < right_bounds[b, q//32])
         
         block_mask = create_block_mask(mask_mod, batch_size, None, self.atom_count, self.atom_count, self.mask.device)
         block_mask = ExtendedBlockMask(block_mask)
 
+        block_mask_diffusion = create_block_mask(mask_mod_diffusion, batch_size*num_diffusion_samples, None, self.atom_count, self.atom_count, self.mask.device)
+        block_mask_diffusion = ExtendedBlockMask(block_mask_diffusion)
+
         """ End of your code """
 
         self.block_mask = block_mask
+        self.block_mask_diffusion = block_mask_diffusion
 
 
 class CalculateReferenceFeatures(Transform):

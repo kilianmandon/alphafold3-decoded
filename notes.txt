@@ -1,0 +1,23 @@
+Compilation Time:
+Full Model (only 1 Pairformer block):
+260s 1st and 2nd iteration, 2s afterward
+
+Full Model (all 48 Pairformer blocks):
+1000s 1st, 1400s 2nd, 8s afterward
+
+Only Pairformer blocks compiled:
+57s 1st, 8.2s afterward
+
+Pairformer blocks and some others compiled:
+136s first, 7.9s afterward
+
+No compilation:
+27s 1st, 9.5s afterward
+
+Only Pairformer blocks compiled, BF16:
+28s 1st, 3.5s afterward
+
+with seq-len 384:
+28s 1st, 1.8s afterward
+
+

@@ -88,11 +88,20 @@ class BlockSparseTensor:
         block_size = torch.tensor(block_mask.BLOCK_SIZE[0], device=x.device, dtype=int)
         n_tokens = n_blocks * block_size
 
-        x = x.expand(batch_size, n_tokens, n_tokens, -1)
 
         inverse_indices = extended_block_mask.inverse_lookup_indices
-        # TODO: This has huge allocations during the backward pass. 
+        # This has huge allocations during the backward pass. 
+        # x = x.expand(batch_size, n_tokens, n_tokens, -1)
+        # Alternative: Clip indices along dimensions that would otherwise be broadcasted
+        inverse_indices = list(inverse_indices)
+        for dim in [1, 2]:
+            if x.shape[dim] == 1:
+                inverse_indices[dim] = torch.zeros_like(inverse_indices[dim])
+        inverse_indices = tuple(inverse_indices)
+
         physical = x[inverse_indices]
+
+
 
         return BlockSparseTensor(physical, block_size, extended_block_mask)
 

@@ -367,7 +367,7 @@ class MSAModuleBlock(nn.Module):
         m = m + self.dropout_rowwise(self.msa_pair_weighted(m, z, single_mask))
         m = m + self.transition(m)
 
-        z = self.core(z, single_mask)
+        z = self.core(z, single_mask, activation_checkpointing=False)
         return m, z
 
 
