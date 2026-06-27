@@ -12,7 +12,7 @@ from diffusion.model import Model
 from training import af3_dataset
 from config import Config
 from feature_extraction.feature_extraction import Batch, collate_batch, tree_map
-from training.af3_dataset import build_af3_dataset, build_sampler
+from training.af3_dataset import build_af3_dataset, build_sampler, collate_batch_drop_none
 
 import os
 # Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
@@ -168,17 +168,17 @@ def main():
     # config.diffusion_config.n_block_diffusion_transformer = 1
     # config.diffusion_config.atom_attention_config.c_token = 64
 
-    t0 = time.time()
-    dataset = build_af3_dataset(config)
-    sampler = build_sampler(dataset)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=2, sampler=sampler, num_workers=0, collate_fn=collate_batch)
-    samples = next(iter(loader))
-    print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
+    # t0 = time.time()
+    # dataset = build_af3_dataset(config)
+    # sampler = build_sampler(dataset)
+    # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, collate_fn=collate_batch_drop_none)
+    # samples = next(iter(loader))
+    # print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
     # with open('test_samples_384.pkl', 'wb') as f:
     #     pickle.dump(samples, f)
 
-    # with open('test_samples_384.pkl', 'rb') as f:
-    #     samples = pickle.load(f)
+    with open('test_samples_384.pkl', 'rb') as f:
+        samples = pickle.load(f)
 
     device = 'cuda:0'
     samples['batch'] = tree_map(lambda x: x.to(device=device), samples['batch'])
@@ -195,7 +195,7 @@ def main():
     
     # model.evoformer.compile(fullgraph=True)
     # model.diffusion_module.compile(fullgraph=True)
-    torch.compiler.reset()
+    # torch.compiler.reset()
     # model.regional_compile()
 
     batch = samples['batch']
@@ -204,10 +204,10 @@ def main():
     batch.token_features.setup_block_mask()
     n_seq = batch.token_features.mask.shape[1]
 
-    # TODO: Manage diffusion BST memory demand, check for correctness (does checkpointing use kwargs?)
+    # TODO: check for correctness (does checkpointing use kwargs?)
 
 
-    for i in range(5):
+    for i in range(1):
         print(f'Iteration {i}...')
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             t0 = time.time()
@@ -217,7 +217,7 @@ def main():
             print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
 
 
-    snapshot_filename = f'memory_snapshot_x{diffusion_batch_size}_small_regional_compile_bf16_b2.pkl'
+    snapshot_filename = f'memory_snapshot_x{diffusion_batch_size}_small_regional_compile_bf16_b1_no_backward.pkl'
     torch.cuda.memory._dump_snapshot(snapshot_filename)
     add_code_file_content_to_snapshot(snapshot_filename)
     

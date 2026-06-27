@@ -20,7 +20,7 @@ def process_traces(source_code, trace_events, filename_whitelist=None):
             if isinstance(node, ast.ClassDef):
                 node_by_lineno[filename][(node.lineno, node.end_lineno)] = node
 
-    def extract_context_string(node, lineno):
+    def extract_context_data(node, lineno):
         splits = []
         splits.append((node.name, node.end_lineno))
 
@@ -30,7 +30,15 @@ def process_traces(source_code, trace_events, filename_whitelist=None):
                     splits.append((child_node.name, child_node.end_lineno))
         splits = sorted(splits, key=lambda x: x[1])
         
-        return '.'.join(x[0] for x in splits)
+        context_str = '.'.join(x[0] for x in splits)
+        context_data = {
+            'context_str': context_str,
+            'context_str_lineno': f'{context_str}:{lineno}',
+            'lineno': lineno,
+            'source_node': node,
+        }
+
+        return context_data
 
     context_quick_lookup = {}
     def get_context(filename, lineno):
@@ -40,9 +48,9 @@ def process_traces(source_code, trace_events, filename_whitelist=None):
 
         for (line_range, node) in node_by_lineno[filename].items():
             if line_range[0] <= lineno < line_range[1]:
-                context_string = extract_context_string(node, lineno)
-                context_quick_lookup[lookup_key] = context_string
-                return context_string
+                context_data = extract_context_data(node, lineno)
+                context_quick_lookup[lookup_key] = context_data
+                return context_data
 
         context_quick_lookup[lookup_key] = None
         return None
@@ -139,9 +147,10 @@ def memory_analysis(memory_snapshot_file):
     for event in peak_events:
         current_level = tree_data
         for context in event['context_stack']:
-            if context not in current_level:
-                current_level[context] = { 'name': context }
-            current_level = current_level[context]
+            context_str = context['context_str_lineno']
+            if context_str not in current_level:
+                current_level[context_str] = { 'name': context_str, 'context': context }
+            current_level = current_level[context_str]
 
         current_level['value'] = current_level.get('value', 0) + event['size']
         current_level['count'] = current_level.get('count', 0) + 1
@@ -162,6 +171,7 @@ def memory_analysis(memory_snapshot_file):
 
     post_order_traversal(tree_data, sum_up_child_values)
 
+
     def preorder_print_value(node, depth):
         if depth == 1:
             color = 'dark_orange'
@@ -175,17 +185,20 @@ def memory_analysis(memory_snapshot_file):
             color = 'white'
 
         amount_gib = node['value'] / 1024**3
-        if amount_gib > 0.5 or 'DiffusionConditionining' in node["name"]:
-            rich.print((' ' * depth * 2) + f'[{color}]{node["name"]}:[/{color}] {amount_gib:.2f} GB ({node["count"]} events)' )
+        if amount_gib > 0.5:
+            to_print = (' ' * depth * 2) + f'[{color}]{node["name"]}:[/{color}] {amount_gib:.2f} GB ({node["count"]} events)'
+
+            rich.print(to_print)
         for child in node.values():
             if not isinstance(child, dict):
                 continue
             preorder_print_value(child, depth+1)
 
     preorder_print_value(tree_data, depth=0)
-    for ev in tree_data['event_names']:
-        if ev['size'] > 1024**3:
-            print(ev)
+    # for ev in tree_data['event_names']:
+    #     if ev['size'] > 1024**3:
+    #         print(ev)
+
 
 def main():
     import argparse

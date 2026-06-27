@@ -10,6 +10,7 @@ from feature_extraction.reference_features import ReferenceFeatures
 
 from common.modules import Transition, DiffusionTransformer
 import common.utils as utils
+from common.utils import activation_checkpointing
 
 
 class DiffusionModule(nn.Module):
@@ -49,7 +50,7 @@ class DiffusionModule(nn.Module):
         r=x_noisy / torch.sqrt(t_hat**2+self.sigma_data**2)[..., None, None]
 
 
-        a, (q_skip, c_skip, p_skip) = self.atom_att_enc(reference_features, reference_features.block_mask_diffusion, r=r, s_trunk=s_trunk, z=z)
+        a, (q_skip, c_skip, p_skip) = self.atom_att_enc(reference_features, r=r, s_trunk=s_trunk, z=z)
 
 
         a = a + self.linear_s(self.layer_norm_s(s))
@@ -98,6 +99,7 @@ class DiffusionConditioning(nn.Module):
         x = c_noise * self.fourier_w + self.fourier_b
         return torch.cos(2 * torch.pi * x)
 
+    @activation_checkpointing
     def forward(self, t_hat, s_input, s_trunk, z_trunk, rel_feat):
         z = torch.cat((z_trunk, rel_feat), dim=-1)
         z = self.linear_z(self.layer_norm_z(z))

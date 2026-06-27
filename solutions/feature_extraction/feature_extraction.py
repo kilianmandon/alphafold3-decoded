@@ -102,7 +102,7 @@ def collate_batch(
     if is_dataclass(first):
         field_dict = {
             f.name: collate_batch(
-                [getattr(b, f.name) for b in batch if b is not None],
+                [getattr(b, f.name) for b in batch],
                 drop_unconvertible_entries=drop_unconvertible_entries,
             )
             for f in fields(first)
@@ -112,14 +112,14 @@ def collate_batch(
     if isinstance(first, dict):
         field_dict = {
             k: collate_batch(
-                [b[k] for b in batch if b is not None],
+                [b[k] for b in batch],
                 drop_unconvertible_entries=drop_unconvertible_entries,
             )
             for k in first.keys() if k not in dict_key_blacklist
         }
         for k in first.keys():
             if k in dict_key_blacklist:
-                field_dict[k] = [b[k] for b in batch if b is not None]
+                field_dict[k] = [b[k] for b in batch]
         return field_dict
 
     if first is None:

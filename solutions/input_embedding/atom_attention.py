@@ -57,10 +57,15 @@ class AtomAttentionEncoder(nn.Module):
             self.trunk_linear_r = nn.Linear(3, c_atom, bias=False)
 
 
-    def forward(self, reference_features: ReferenceFeatures, block_mask: ExtendedBlockMask, r=None, s_trunk=None, z=None):
+    def forward(self, reference_features: ReferenceFeatures, r=None, s_trunk=None, z=None):
         ref_space_uid = reference_features.ref_space_uid
         ref_pos = reference_features.positions
         batch_shape = ref_space_uid.shape[:-1]
+
+        if self.use_trunk:
+            block_mask = reference_features.block_mask_diffusion
+        else:
+            block_mask = reference_features.block_mask
 
         single_cond = self.per_atom_cond(reference_features)
 
@@ -84,21 +89,7 @@ class AtomAttentionEncoder(nn.Module):
         pair_act = pair_act + self.embed_pair_distances(1/(1+sq_dists)) * offsets_valid
 
         if self.use_trunk:
-            s_trunk = reference_features.to_atom_layout(s_trunk, has_atom_dimension=False)
-
-            batch_idx, p_idx, l_idx = pair_act.inverse_lookup_indices
-            token_indices = utils.unify_batch_dimension(reference_features.token_index, batch_shape)
-            z = utils.unify_batch_dimension(z, batch_shape)
-            i_idx = token_indices[batch_idx, p_idx]
-            j_idx = token_indices[batch_idx, l_idx]
-            z = pair_act._wrap(z[batch_idx, i_idx, j_idx])
-
-            single_cond = single_cond + self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
-            pair_act = pair_act + self.trunk_linear_z(self.trunk_layer_norm_z(z))
-
-            # Note: The paper uses the old, non-trunk-updated value
-            # for queries_single_cond here
-            single_act = single_cond + self.trunk_linear_r(r)
+            single_act, single_cond, pair_act = self.trunk_update(reference_features, pair_act, single_cond, r, s_trunk, z)
 
 
         row_act = self.single_to_pair_row(torch.relu(single_cond))
@@ -148,6 +139,30 @@ class AtomAttentionEncoder(nn.Module):
 
         return act
 
+    @utils.activation_checkpointing
+    def trunk_update(self, reference_features, pair_act, single_cond, r, s_trunk, z):
+        batch_shape = s_trunk.shape[:-2]
+
+        s_trunk = reference_features.to_atom_layout(s_trunk, has_atom_dimension=False)
+
+        batch_idx, p_idx, l_idx = pair_act.inverse_lookup_indices
+        token_indices = utils.unify_batch_dimension(reference_features.token_index, batch_shape)
+        z = utils.unify_batch_dimension(z, batch_shape)
+        i_idx = token_indices[batch_idx, p_idx]
+        j_idx = token_indices[batch_idx, l_idx]
+        # Processing (128 -> 16 channels) before indexing, to lower memory usage
+        z = self.trunk_linear_z(self.trunk_layer_norm_z(z))
+        z = pair_act._wrap(z[batch_idx, i_idx, j_idx])
+
+        single_cond = single_cond + self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
+        pair_act = pair_act + z
+
+        # Note: The paper uses the old, non-trunk-updated value
+        # for queries_single_cond here
+        single_act = single_cond + self.trunk_linear_r(r)
+
+        return single_act, single_cond, pair_act
+
 
 class AtomAttentionDecoder(nn.Module):
     # Implements Algorithm 6 from the paper
@@ -161,9 +176,11 @@ class AtomAttentionDecoder(nn.Module):
         self.linear_out = nn.Linear(c_atom, 3, bias=False)
 
     def forward(self, a, q_skip, c_skip, p_skip, reference_features: ReferenceFeatures):
+        block_mask = reference_features.block_mask_diffusion
+
         a = self.linear_a(a)
         a_q = reference_features.to_atom_layout(a, has_atom_dimension = False)
         q = a_q + q_skip
-        q = self.atom_transformer(q, c_skip, p_skip, reference_features.block_mask)
+        q = self.atom_transformer(q, c_skip, p_skip, block_mask)
         r = self.linear_out(self.layer_norm_q(q))
         return r

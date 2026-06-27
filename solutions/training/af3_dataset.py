@@ -44,6 +44,15 @@ def af3_pipeline_none_on_error(config, is_inference=False):
             return None
     return apply
 
+def collate_batch_drop_none(batch):
+    if any(b is None for b in batch):
+        none_count = len(b for b in batch if b is None)
+        print(f'Dropping {none_count} out of {len(batch)} entries because of errors in feature extraction.')
+        batch = [b for b in batch if b is not None]
+        if not batch:
+            return None
+    return collate_batch(batch)
+
 
 
 
@@ -129,7 +138,7 @@ def main():
     config = Config()
     dataset = build_af3_dataset(config)
     sampler = build_sampler(dataset)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=8, sampler=sampler, num_workers=4, collate_fn=collate_batch)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=8, sampler=sampler, num_workers=4, collate_fn=collate_batch_drop_none)
     samples = next(iter(loader))
     ...
 

@@ -67,7 +67,7 @@ class InputEmbedder(nn.Module):
     def forward(self, batch):
         # Implements Line 1 to Line 5 from Algorithm 1
         target_feat = batch.msa_features.target_feat
-        token_act, _ = self.atom_cross_att(batch.reference_features, batch.reference_features.block_mask)
+        token_act, _ = self.atom_cross_att(batch.reference_features)
         s_input = torch.cat((target_feat, token_act), dim=-1)
 
         s_init = self.single_embedding(s_input)
