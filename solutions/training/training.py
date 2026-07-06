@@ -6,6 +6,8 @@ import copy
 import torch
 import pickle
 
+from torch_snapkit import memory_snapshot
+
 
 from common import utils
 from diffusion.model import Model
@@ -135,20 +137,6 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     # x_flat = self.diffusion_sampler(model.diffusion_module,
 
 def main():
-    torch.cuda.memory._record_memory_history(
-        # True,
-        # trace_alloc_max_entries=1_000_000,
-        # trace_alloc_record_context=True,
-    )
-
-    def oom_observer(device, alloc, device_alloc, device_free):
-        # snapshot right after an OOM happened
-        print('Saving memory snapshot after OOM.')
-        filename = f"oom_memory_snapshot.pkl"
-        torch.cuda.memory._dump_snapshot(filename)
-
-    torch._C._cuda_attach_out_of_memory_observer(oom_observer)
-
     config = Config()
     config.global_config.n_cycle = 1
     config.diffusion_config.denoising_steps = 1
@@ -199,13 +187,12 @@ def main():
     # model.regional_compile()
 
     batch = samples['batch']
-    diffusion_batch_size=24
+    diffusion_batch_size=12
     batch.reference_features.setup_block_mask(num_diffusion_samples=diffusion_batch_size)
     batch.token_features.setup_block_mask()
     n_seq = batch.token_features.mask.shape[1]
 
     # TODO: check for correctness (does checkpointing use kwargs?)
-
 
     for i in range(1):
         print(f'Iteration {i}...')
@@ -217,24 +204,12 @@ def main():
             print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
 
 
-    snapshot_filename = f'memory_snapshot_x{diffusion_batch_size}_small_regional_compile_bf16_b1_no_backward.pkl'
-    torch.cuda.memory._dump_snapshot(snapshot_filename)
-    add_code_file_content_to_snapshot(snapshot_filename)
-    
-    torch.cuda.memory._record_memory_history(enabled=None)
-
-def test():
-    a = torch.zeros((5,), device='cuda').long()
-    x = torch.zeros((3,), device='cuda', requires_grad=True)
-    a = torch.nn.functional.one_hot(a, 3)
-
-    s = (a@x).sum()
-    return s
 
 if __name__=='__main__':
     # Use this to get frame-tracing for allocations in backward pass
     # with torch.autograd.detect_anomaly():
-    main()
+    with memory_snapshot('x12_bf16_pairstack_att_msamodule_diffcondtrans_atomatt_checkpointed', share=True, share_code='kiliaf3secret'):
+        main()
 
 
 

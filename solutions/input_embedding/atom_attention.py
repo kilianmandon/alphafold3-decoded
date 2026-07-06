@@ -4,6 +4,7 @@ from config import AtomAttentionConfig
 from feature_extraction.reference_features import ReferenceFeatures
 from common.block_sparse_tensor import BlockSparseTensor, ExtendedBlockMask
 from common.modules import DiffusionTransformer
+from common.utils import activation_checkpointing
 
 import common.utils as utils
 
@@ -139,7 +140,7 @@ class AtomAttentionEncoder(nn.Module):
 
         return act
 
-    @utils.activation_checkpointing
+    @activation_checkpointing
     def trunk_update(self, reference_features, pair_act, single_cond, r, s_trunk, z):
         batch_shape = s_trunk.shape[:-2]
 

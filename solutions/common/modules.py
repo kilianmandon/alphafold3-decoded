@@ -73,7 +73,7 @@ class AttentionPairBias(nn.Module):
         self.adaptive = adaptive
         self.split_ada_qk = split_ada_qk
 
-    @utils.activation_checkpointing
+    @activation_checkpointing
     def forward(self, a, z, extended_block_mask: ExtendedBlockMask, s=None):
         batch_shape = a.shape[:-2]
         N_head = self.N_head

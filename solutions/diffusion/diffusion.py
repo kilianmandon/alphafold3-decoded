@@ -99,12 +99,13 @@ class DiffusionConditioning(nn.Module):
         x = c_noise * self.fourier_w + self.fourier_b
         return torch.cos(2 * torch.pi * x)
 
-    @activation_checkpointing
+    # @activation_checkpointing
     def forward(self, t_hat, s_input, s_trunk, z_trunk, rel_feat):
         z = torch.cat((z_trunk, rel_feat), dim=-1)
         z = self.linear_z(self.layer_norm_z(z))
         for block in self.z_transition:
             z = z + block(z, activation_checkpointing=True)
+            # z = z + block(z)
 
         s = torch.cat((s_trunk, s_input), dim=-1)
         tf_mask = torch.ones(s.shape[-1], device=s.device, dtype=bool)
