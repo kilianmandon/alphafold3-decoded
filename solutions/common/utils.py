@@ -171,6 +171,8 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
 def static_one_hot(x: torch.Tensor, num_classes: int):
     return (x[..., None] == torch.arange(num_classes, dtype=x.dtype, device=x.device)).float()
 
+is_checkpointing = False
+
 def activation_checkpointing(f=None, *, checkpoint_by_default=True):
     # aten = torch.ops.aten
     # compute_intensive_ops = [  
@@ -197,9 +199,13 @@ def activation_checkpointing(f=None, *, checkpoint_by_default=True):
     context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
     def decorator(f):
         def helper(*args, **kwargs):
+            global is_checkpointing
             do_checkpoint = kwargs.pop('activation_checkpointing', checkpoint_by_default) and torch.is_grad_enabled()
-            if do_checkpoint:
-                return torch.utils.checkpoint.checkpoint(f, *args, use_reentrant=False, context_fn=context_fn, **kwargs)
+            if do_checkpoint and not is_checkpointing:
+                # is_checkpointing = True
+                res = torch.utils.checkpoint.checkpoint(f, *args, use_reentrant=False, context_fn=context_fn, **kwargs)
+                # is_checkpointing = False
+                return res
             else:
                 return f(*args, **kwargs)
         return helper

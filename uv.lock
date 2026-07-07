@@ -96,7 +96,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4" },
     { name = "rdkit", specifier = "==2024.3.5" },
     { name = "torch" },
-    { name = "torch-snapkit", specifier = ">=0.1.0" },
+    { name = "torch-snapkit", specifier = ">=0.1.1" },
     { name = "torchvision", specifier = ">=0.22.1" },
     { name = "tqdm" },
     { name = "wandb", specifier = ">=0.24.1" },
@@ -1851,14 +1851,14 @@ wheels = [
 
 [[package]]
 name = "torch-snapkit"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "torch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/5f/82be7dfbced310acbb9a6e4eb6c556960aabf98eca775733fd8ad6608ea8/torch_snapkit-0.1.0.tar.gz", hash = "sha256:141012d30aef66c7eae9b64ec426e96cc7a9e6c7afda0c9673079e149064adc2", size = 4265, upload-time = "2026-07-05T13:57:03.542Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/7e/94da1ea3c7b9bae2db31f4851f2f6e915300b7e60dde9fca394b943add70/torch_snapkit-0.1.1.tar.gz", hash = "sha256:b6ae770de9a190dd53b63bf30fa2fd0168270940d7ea6bf627a13fd99b9fde70", size = 4345, upload-time = "2026-07-06T14:05:28.811Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/8c/3da9b64fa2bff60baec15ff3328d6f404328f4dc2290cfa5175c51e460a4/torch_snapkit-0.1.0-py3-none-any.whl", hash = "sha256:830db830a3380a343b9914a180882d0b2792def39fe140481a6a13e70aabafd3", size = 6095, upload-time = "2026-07-05T13:57:02.469Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/14/875838d312c3781e66df279d5e164d9d825c244f8166131b7897e0bec9e6/torch_snapkit-0.1.1-py3-none-any.whl", hash = "sha256:1d2462358ff5c4f460ac3dac9f2d31fe70cd4951c9d0e6e9b3391e8e40fbe41e", size = 6114, upload-time = "2026-07-06T14:05:27.962Z" },
 ]
 
 [[package]]

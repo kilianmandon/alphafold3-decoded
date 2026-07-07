@@ -19,5 +19,5 @@ dependencies = [
     "wandb>=0.24.1",
     "matplotlib>=3.10.8",
     "nbconvert>=7.17.0",
-    "torch-snapkit>=0.1.1",
+    "torch-snapkit>=0.1.2",
 ]
