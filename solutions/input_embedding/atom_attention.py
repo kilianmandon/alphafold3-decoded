@@ -140,7 +140,6 @@ class AtomAttentionEncoder(nn.Module):
 
         return act
 
-    @activation_checkpointing
     def trunk_update(self, reference_features, pair_act, single_cond, r, s_trunk, z):
         batch_shape = s_trunk.shape[:-2]
 

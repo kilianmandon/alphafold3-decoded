@@ -203,7 +203,7 @@ def activation_checkpointing(f=None, *, checkpoint_by_default=True):
             do_checkpoint = kwargs.pop('activation_checkpointing', checkpoint_by_default) and torch.is_grad_enabled()
             if do_checkpoint and not is_checkpointing:
                 # is_checkpointing = True
-                res = torch.utils.checkpoint.checkpoint(f, *args, use_reentrant=False, context_fn=context_fn, **kwargs)
+                res = torch.utils.checkpoint.checkpoint(f, *args, use_reentrant=False, **kwargs)
                 # is_checkpointing = False
                 return res
             else:

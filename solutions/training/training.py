@@ -71,33 +71,10 @@ def mse_loss(x_out, x_gt, x_gt_mask, batch: Batch):
     return mse
 
 
-def add_code_file_content_to_snapshot(snapshot_filename):
-    with open(snapshot_filename, 'rb') as f:
-        snapshot = pickle.load(f)
-    
-    trace_entries = snapshot['device_traces'][0]
 
-    files_to_analyze = set()
-    for entry in trace_entries:
-        for frame in entry['frames']:
-            files_to_analyze.add(frame['filename'])
-
-    file_data = {}
-    skipped_files = []
-    for filename in files_to_analyze:
-        if filename and Path(filename).exists():
-            file_data[filename] = Path(filename).read_text()
-        elif filename not in skipped_files:
-            # print(f'Skipping file {filename}')
-            skipped_files.append(filename)
-
-    snapshot['source_code'] = file_data
-    
-    with open(snapshot_filename, 'wb') as f:
-        pickle.dump(snapshot, f)
-
-    
-def training_forward(model: Model, batch_with_labels: dict, config: Config, diffusion_batch_size=24):
+def training_forward(model: Model, batch_with_labels: dict, config: Config, diffusion_batch_size, total_diffusion_batch_size):
+    assert total_diffusion_batch_size % diffusion_batch_size == 0, 'Total and per-micro-batch diffusion_batch_size need to be equal.'
+    t0 = time.time()
     batch = batch_with_labels['batch']
     x_gt_shape = batch.reference_features.positions.shape
     batch_shape = batch.reference_features.positions.shape[:-2]
@@ -105,7 +82,8 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     device = batch.reference_features.positions.device
 
     s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
-    print('Evoformer complete')
+    t1 = time.time()
+    print(f'Evoformer complete {t1-t0:.1f} s')
 
     x_gt = [torch.tensor(data['atom_array'].coord, device=device) for data in batch_with_labels["original_data"]]
     x_gt = utils.pad_to_shape(collate_batch(x_gt), x_gt_shape)
@@ -115,8 +93,6 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     diffusion_batch_shape = (diffusion_batch_size,) + batch_shape
     x_gt = x_gt[None, ...].broadcast_to(diffusion_batch_shape + (n_atoms, 3))
     sigma_data = config.diffusion_config.sigma_data
-    noise_amount = sigma_data * torch.exp(-1.2 + 1.5 * torch.randn(diffusion_batch_shape, device=device))
-    noise = torch.randn(x_gt.shape, device=device) * noise_amount[..., None, None]
 
     def expand_batch_to_diffusion_shape(x):
         return x[None, ...].broadcast_to((diffusion_batch_size,) + x.shape)
@@ -125,16 +101,31 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     batch = tree_map(expand_batch_to_diffusion_shape, batch, skip_unconvertible_entries=True)
     s_input, s_trunk, z_trunk, rel_feat = tree_map(expand_batch_to_diffusion_shape, [s_input, s_trunk, z_trunk, rel_feat])
 
+    s_input_d = s_input.detach().requires_grad_(True)
+    s_trunk_d = s_trunk.detach().requires_grad_(True)
+    z_trunk_d = z_trunk.detach().requires_grad_(True)
+    rel_feat_d = rel_feat.detach().requires_grad_(True)
 
-    x_gt_randaug = model.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
-    x_gt_noisy = x_gt_randaug + noise
+    num_repeats = total_diffusion_batch_size // diffusion_batch_size
+    total_loss = torch.tensor(0, device=device, dtype=float)
+    for _ in range(num_repeats):
+        noise_amount = sigma_data * torch.exp(-1.2 + 1.5 * torch.randn(diffusion_batch_shape, device=device))
+        noise = torch.randn(x_gt.shape, device=device) * noise_amount[..., None, None]
+        x_gt_randaug = model.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
+        x_gt_noisy = x_gt_randaug + noise
 
-    x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input, s_trunk, z_trunk, rel_feat, batch)
+        x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input_d, s_trunk_d, z_trunk_d, rel_feat_d, batch)
+        loss = mse_loss(x_denoised, x_gt, x_gt_mask, batch).mean() / num_repeats
+        loss.backward()
+        total_loss += loss.detach()
 
-    loss = mse_loss(x_denoised, x_gt, x_gt_mask, batch).mean()
-    return loss
+    t2 = time.time()
+    print(f'Diff back {t2 - t1:.1f} s')
 
-    # x_flat = self.diffusion_sampler(model.diffusion_module,
+    torch.autograd.backward([s_input, s_trunk, z_trunk], [s_input_d.grad, s_trunk_d.grad, z_trunk_d.grad])
+    print(f'Evo back {time.time()-t2:.1f} s')
+    
+    return total_loss
 
 def main():
     config = Config()
@@ -184,10 +175,10 @@ def main():
     # model.evoformer.compile(fullgraph=True)
     # model.diffusion_module.compile(fullgraph=True)
     # torch.compiler.reset()
-    # model.regional_compile()
+    model.regional_compile()
 
     batch = samples['batch']
-    diffusion_batch_size=12
+    diffusion_batch_size=6
     batch.reference_features.setup_block_mask(num_diffusion_samples=diffusion_batch_size)
     batch.token_features.setup_block_mask()
     n_seq = batch.token_features.mask.shape[1]
@@ -198,17 +189,17 @@ def main():
         print(f'Iteration {i}...')
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             t0 = time.time()
-            loss = training_forward(model, samples, config, diffusion_batch_size=diffusion_batch_size)
+            loss = training_forward(model, samples, config, diffusion_batch_size=diffusion_batch_size, total_diffusion_batch_size=48)
             print('Forward complete.')
-            loss.backward()
-            print(f'Backward complete. Took {time.time()-t0:.1f} seconds.')
+            print(f'Took {time.time()-t0:.1f} s')
 
 
 
 if __name__=='__main__':
     # Use this to get frame-tracing for allocations in backward pass
     # with torch.autograd.detect_anomaly():
-    with memory_snapshot('x12_bf16_pairstack_att_msamodule_diffcondtrans_atomatt_checkpointed', share=True, share_code='kiliaf3secret'):
+    with memory_snapshot('x8x6_bf16_comp_pairstack_att_msamodule_diffcond_checkpointed', share=True, share_code='kilis_new_af3_secret3'):
+    # with memory_snapshot('x4x12_bf16_pairstack_att_msamodule_diffcond_diffcondtrans_atomatt_checkpointed', save_path='.'):
         main()
 
 
