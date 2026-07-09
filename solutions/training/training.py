@@ -1,78 +1,36 @@
-from pathlib import Path
+import os
+import lightning as L
+# Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
+os.environ["PDB_MIRROR_PATH"] = ""
+os.environ["CCD_MIRROR_PATH"] = ""
+
 import time
-import ast
-import copy
 
 import torch
 import pickle
 
-from torch_snapkit import memory_snapshot
+import logging
+logger = logging.getLogger('rdkit')
+logger.handlers[0].setLevel(logging.ERROR)
+logger.handlers[0].setFormatter(logging.Formatter('[RDKit] %(levelname)s:%(message)s'))
+from rdkit import rdBase
+from rdkit import RDLogger  
+RDLogger.DisableLog('rdApp.*')
+rdBase.LogToPythonLogger()
 
+from torch_snapkit import memory_snapshot
 
 from common import utils
 from diffusion.model import Model
+from training.training_module import AF3TrainingModule, mse_loss
 from training import af3_dataset
 from config import Config
 from feature_extraction.feature_extraction import Batch, collate_batch, tree_map
 from training.af3_dataset import build_af3_dataset, build_sampler, collate_batch_drop_none
 
-import os
-# Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
-os.environ["PDB_MIRROR_PATH"] = ""
-os.environ["CCD_MIRROR_PATH"] = ""
-
-
-def weighted_align(x_src, x_tgt, w):
-    # x_src has shape (**batch_shape, n_atoms, 3)
-    # x_tgt has shape (**batch_shape, n_atoms, 3)
-    # w has shape (**batch_shape, n_atoms)
-    batch_shape = x_src.shape[:-2]
-    n_atoms = x_src.shape[-2]
-    device = x_src.device
-
-
-    mu_x_src = torch.sum(x_src * w[..., None], dim=-2) / torch.sum(w[..., None], dim=-2)
-    mu_x_tgt = torch.sum(x_tgt * w[..., None], dim=-2) / torch.sum(w[..., None], dim=-2)
-
-    mu_x_src = mu_x_src[..., None, :]
-    mu_x_tgt = mu_x_tgt[..., None, :]
-
-    x_src = x_src - mu_x_src
-    x_tgt = x_tgt - mu_x_tgt
-
-    H = torch.einsum('...l,...li,...lj->...ij', w, x_tgt, x_src)
-    U, _, Vh = torch.linalg.svd(H)
-
-    F = torch.eye(3, device=device).reshape((1,) * len(batch_shape) + (3, 3))
-    F = F.broadcast_to(batch_shape + (3, 3)).contiguous()
-    F[..., 2, 2] = torch.linalg.det(U@Vh)
-
-    R = U@F@Vh
-    x_aligned = torch.einsum('...ij,...nj->...ni', R, x_src) + mu_x_tgt
-
-    return x_aligned.detach()
-
-def mse_loss(x_out, x_gt, x_gt_mask, batch: Batch):
-
-    alpha_dna = 5
-    alpha_rna = 5
-    alpha_ligand = 10
-    w = 1 + batch.token_features.is_dna * alpha_dna + batch.token_features.is_rna * alpha_rna + batch.token_features.is_ligand * alpha_ligand
-
-
-    w = batch.reference_features.to_atom_layout(w, has_atom_dimension=False)
-    w = w * batch.reference_features.mask * x_gt_mask
-
-    with torch.autocast(device_type="cuda", enabled=False):
-        x_gt_aligned = weighted_align(x_gt, x_out, w)
-
-    mse = 1/3 * torch.sum(w * (x_out - x_gt_aligned).square().sum(dim=-1), axis=-1) / x_gt_mask.sum(dim=-1)
-    
-    return mse
-
-
-
-def training_forward(model: Model, batch_with_labels: dict, config: Config, diffusion_batch_size, total_diffusion_batch_size):
+def training_forward(model: Model, batch_with_labels: dict, config: Config, ):
+    diffusion_batch_size = config.training_config.diffusion_micro_batch_size
+    total_diffusion_batch_size = config.training_config.diffusion_batch_size
     assert total_diffusion_batch_size % diffusion_batch_size == 0, 'Total and per-micro-batch diffusion_batch_size need to be equal.'
     t0 = time.time()
     batch = batch_with_labels['batch']
@@ -85,7 +43,7 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     t1 = time.time()
     print(f'Evoformer complete {t1-t0:.1f} s')
 
-    x_gt = [torch.tensor(data['atom_array'].coord, device=device) for data in batch_with_labels["original_data"]]
+    x_gt = [torch.tensor(atom_array.coord, device=device) for atom_array in batch_with_labels["atom_array"]]
     x_gt = utils.pad_to_shape(collate_batch(x_gt), x_gt_shape)
     x_gt_mask = ~(x_gt.isnan().any(dim=-1))
     x_gt[~x_gt_mask] = 0
@@ -127,6 +85,58 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, diff
     
     return total_loss
 
+def basic_step():
+    config = Config()
+    config.global_config.n_cycle = 1
+    config.diffusion_config.denoising_steps = 1
+    config.global_config.c_m = 32
+    config.global_config.c_z = 64
+    config.global_config.c_s = 384
+    config.evoformer_config.msa_module_config.n_blocks = 1
+
+    # dataset = build_af3_dataset(config)
+    # torch.random.manual_seed(35)
+    # sampler = build_sampler(dataset)
+    # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=32, collate_fn=lambda x: collate_batch_drop_none(x, config))
+
+    # dl_iter = iter(loader)
+
+
+    # samples = [next(dl_iter) for i in range(10)]
+
+    # with open('test_samples.pkl', 'wb') as f:
+    #     pickle.dump(samples, f)
+
+    model = Model(config)
+    model.to('cuda')
+    model.regional_compile()
+
+    with open('test_samples.pkl', 'rb') as f:
+        samples = pickle.load(f)
+
+    samples = tree_map(lambda x: x.to(device='cuda'), samples, skip_unconvertible_entries=True)
+
+    for i in range(3, 20):
+        t = time.time()
+
+        it_samples = samples[i]
+
+        if it_samples is None:
+            raise ValueError(f'Failed in iteration {i}')
+        batch = it_samples['batch']
+        batch.reference_features.setup_block_mask(config.training_config.diffusion_micro_batch_size)
+        batch.token_features.setup_block_mask()
+
+
+        
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+            training_forward(model, it_samples, config)
+        print(f'Tokk {time.time()-t:.1f} s')
+
+
+
+
+
 def main():
     config = Config()
     config.global_config.n_cycle = 1
@@ -147,20 +157,10 @@ def main():
     # config.diffusion_config.n_block_diffusion_transformer = 1
     # config.diffusion_config.atom_attention_config.c_token = 64
 
-    # t0 = time.time()
-    # dataset = build_af3_dataset(config)
-    # sampler = build_sampler(dataset)
-    # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, collate_fn=collate_batch_drop_none)
-    # samples = next(iter(loader))
-    # print(f'Featurization complete. Took {time.time() - t0:.1f} seconds.')
-    # with open('test_samples_384.pkl', 'wb') as f:
-    #     pickle.dump(samples, f)
-
-    with open('test_samples_384.pkl', 'rb') as f:
-        samples = pickle.load(f)
-
-    device = 'cuda:0'
-    samples['batch'] = tree_map(lambda x: x.to(device=device), samples['batch'])
+    t0 = time.time()
+    dataset = build_af3_dataset(config)
+    sampler = build_sampler(dataset)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
     # Force initialization by accessing dynamo first
     # Currently only works with export TORCHINDUCTOR_MIX_ORDER_REDUCTION=0
@@ -170,37 +170,28 @@ def main():
     model = Model(config)
     # params = torch.load('data/params/af3_pytorch.pt')
     # model.load_state_dict(params)
-    model = model.to(device=device)
     
     # model.evoformer.compile(fullgraph=True)
     # model.diffusion_module.compile(fullgraph=True)
     # torch.compiler.reset()
-    model.regional_compile()
+    # model.regional_compile()
 
-    batch = samples['batch']
-    diffusion_batch_size=6
-    batch.reference_features.setup_block_mask(num_diffusion_samples=diffusion_batch_size)
-    batch.token_features.setup_block_mask()
-    n_seq = batch.token_features.mask.shape[1]
+    af3_training_module = AF3TrainingModule(model, config, 2)
+    trainer = L.Trainer(max_steps=1, num_nodes=1)
 
     # TODO: check for correctness (does checkpointing use kwargs?)
+    torch.autograd.graph.set_warn_on_accumulate_grad_stream_mismatch(False)
+    trainer.fit(af3_training_module, train_dataloaders=loader)
 
-    for i in range(1):
-        print(f'Iteration {i}...')
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            t0 = time.time()
-            loss = training_forward(model, samples, config, diffusion_batch_size=diffusion_batch_size, total_diffusion_batch_size=48)
-            print('Forward complete.')
-            print(f'Took {time.time()-t0:.1f} s')
 
 
 
 if __name__=='__main__':
     # Use this to get frame-tracing for allocations in backward pass
     # with torch.autograd.detect_anomaly():
-    with memory_snapshot('x8x6_bf16_comp_pairstack_att_msamodule_diffcond_checkpointed', share=True, share_code='kilis_new_af3_secret3'):
-    # with memory_snapshot('x4x12_bf16_pairstack_att_msamodule_diffcond_diffcondtrans_atomatt_checkpointed', save_path='.'):
-        main()
+    # with memory_snapshot('training_mixed', share=True, share_code='kilis_new_af3_secret3'):
+    # main()
+    basic_step()
 
 
 

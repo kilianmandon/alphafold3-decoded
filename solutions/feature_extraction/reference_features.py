@@ -1,5 +1,6 @@
 from dataclasses import dataclass, fields
 from functools import cached_property
+import logging
 import math
 
 import numpy as np
@@ -242,10 +243,10 @@ class ReferenceFeatures:
             return (q < unpadded_atom_count[b]) & (left_bounds[b, q//32] <= k) & (k < right_bounds[b, q//32])
         
         block_mask = create_block_mask(mask_mod, batch_size, None, self.atom_count, self.atom_count, self.mask.device)
-        block_mask = ExtendedBlockMask(block_mask)
+        block_mask = ExtendedBlockMask.from_block_mask(block_mask)
 
         block_mask_diffusion = create_block_mask(mask_mod_diffusion, batch_size*num_diffusion_samples, None, self.atom_count, self.atom_count, self.mask.device)
-        block_mask_diffusion = ExtendedBlockMask(block_mask_diffusion)
+        block_mask_diffusion = ExtendedBlockMask.from_block_mask(block_mask_diffusion)
 
         """ End of your code """
 
@@ -394,11 +395,17 @@ class CalculateReferenceFeatures(Transform):
         token_starts = get_token_starts(atom_array)
         _, token_index = utils.round_down_to(np.arange(len(atom_array)), token_starts, return_indices=True)
 
+        try:
+            logging.disable(logging.WARNING)
+            positions = self.calculate_ref_positions(atom_array).astype(np.float32)
+        finally:
+            logging.disable(logging.NOTSET)
+
         reference_features = {
             'element': atom_array.atomic_number,
             'charge': atom_array.charge,
             'atom_name_chars': self.prep_atom_chars(atom_array.atom_name),
-            'positions': self.calculate_ref_positions(atom_array).astype(np.float32),
+            'positions': positions,
             'mask': np.ones_like(atom_array.atomic_number).astype(bool),
             'ref_space_uid': ref_space_uid,
             'token_index': token_index,

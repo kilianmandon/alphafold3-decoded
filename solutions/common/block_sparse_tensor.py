@@ -4,10 +4,20 @@ from torch.nn.attention.flex_attention import BlockMask
 import common.utils as utils
 
 class ExtendedBlockMask:
-    def __init__(self, block_mask: BlockMask):
+    def __init__(self, 
+                block_mask: BlockMask,
+                lookup_table: torch.IntTensor,
+                inverse_lookup_indices: tuple[torch.Tensor, torch.Tensor, torch.Tensor]):
         self.block_mask = block_mask
-        self.lookup_table: torch.IntTensor = ExtendedBlockMask._build_lookup_table(block_mask)
-        self.inverse_lookup_indices: tuple[torch.Tensor, torch.Tensor, torch.Tensor] = ExtendedBlockMask._build_inverse_lookup_indices(block_mask, self.lookup_table)
+        self.lookup_table = lookup_table
+        self.inverse_lookup_indices = inverse_lookup_indices
+
+    @staticmethod
+    def from_block_mask(block_mask: BlockMask):
+        lookup_table = ExtendedBlockMask._build_lookup_table(block_mask)
+        inverse_lookup_indices = ExtendedBlockMask._build_inverse_lookup_indices(block_mask, lookup_table)
+
+        return ExtendedBlockMask(block_mask, lookup_table, inverse_lookup_indices)
 
     @staticmethod
     def _build_inverse_lookup_indices(block_mask: BlockMask, lookup_table: torch.Tensor):

@@ -90,7 +90,7 @@ class TokenFeatures:
         
         batch_size = mask.shape[0]
         block_mask = create_block_mask(mask_mod, batch_size, None, self.token_count, self.token_count, self.mask.device)
-        block_mask = ExtendedBlockMask(block_mask)
+        block_mask = ExtendedBlockMask.from_block_mask(block_mask)
 
         """ End of your code """
 

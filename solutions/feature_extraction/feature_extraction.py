@@ -36,6 +36,9 @@ class Batch:
     reference_features: ReferenceFeatures
     bond_matrix: Array
 
+    def to(self, device, *args, **kwargs):
+        return tree_map(lambda x: x.to(device, *args, **kwargs), self, skip_unconvertible_entries=True)
+
 
 def tree_map(fn, x, skip_unconvertible_entries=False):
     """
@@ -58,6 +61,10 @@ def tree_map(fn, x, skip_unconvertible_entries=False):
 
     if isinstance(x, list):
         field_list = [tree_map(fn, v, skip_unconvertible_entries) for v in x]
+        return field_list
+
+    if isinstance(x, tuple):
+        field_list = tuple(tree_map(fn, v, skip_unconvertible_entries) for v in x)
         return field_list
 
     if x is None:
@@ -87,7 +94,7 @@ def collate_batch(
 
     # When collating a dict, keys in dict_key_blacklist are just turned to a list
     # Note: This code was changed after freeze for the YouTube video
-    dict_key_blacklist = ["original_data"]
+    dict_key_blacklist = ["atom_array"]
 
     if isinstance(first, torch.Tensor):
         max_shape = np.array([b.shape for b in batch]).max(axis=0).tolist()
@@ -167,7 +174,7 @@ class BuildBatch(Transform):
 
         batch = tree_map(lambda x: torch.tensor(x), batch)
 
-        return { "batch": batch, "original_data": data }
+        return { "batch": batch, "atom_array": data["atom_array"] }
 
 
 def custom_af3_pipeline(
