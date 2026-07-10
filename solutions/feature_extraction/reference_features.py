@@ -305,37 +305,41 @@ class CalculateReferenceFeatures(Transform):
         positions = np.zeros((len(atom_array), 3))
 
         for i, (res_name, chain_iid) in enumerate(zip(res_names, chain_iids)):
-            if res_name in known_ccd_codes:
-                if (res_name, chain_iid) not in cached_conformers:
-                    mol = ccd_code_to_rdkit(res_name)
-                    # Note: AF3 sanitizes the atom order by sorting atoms based on their name. 
-                    # This does not strongly affect the results, since the conformer generation doesn't rely 
-                    # on the atom order, aside from its random seed.
+            try:
+                if res_name in known_ccd_codes:
+                    if (res_name, chain_iid) not in cached_conformers:
+                        mol = ccd_code_to_rdkit(res_name)
+                        # Note: AF3 sanitizes the atom order by sorting atoms based on their name. 
+                        # This does not strongly affect the results, since the conformer generation doesn't rely 
+                        # on the atom order, aside from its random seed.
 
-                    # annotations = mol._annotations
-                    # order = np.argsort(annotations['atom_name'])
-                    # mol = rdkit.Chem.RenumberAtoms(mol, order.tolist())
-                    # mol._annotations = {
-                    #     k: v[order] for k, v in annotations.items()
-                    # }
-                    # mol = generate_conformers(mol, seed=1, optimize=False, attempts_with_distance_geometry=250, hydrogen_policy='keep')
+                        # annotations = mol._annotations
+                        # order = np.argsort(annotations['atom_name'])
+                        # mol = rdkit.Chem.RenumberAtoms(mol, order.tolist())
+                        # mol._annotations = {
+                        #     k: v[order] for k, v in annotations.items()
+                        # }
+                        # mol = generate_conformers(mol, seed=1, optimize=False, attempts_with_distance_geometry=250, hydrogen_policy='keep')
 
-                    mol = generate_conformers(mol)
-                    cached_conformers[(res_name, chain_iid)] = atom_array_from_rdkit(mol, conformer_id=0)
-                conformer = cached_conformers[(res_name, chain_iid)]
-            else:
-                if res_name not in cached_unknown_conformers:
-                    res_atom_array = atom_array[residue_starts[i]:residue_ends[i]]
-                    cached_unknown_conformers[res_name] = sample_rdkit_conformer_for_atom_array(res_atom_array)
-
-                conformer = cached_unknown_conformers[res_name]
-
-            for j in range(residue_starts[i], residue_ends[i]):
-                matching_atom_idx = np.nonzero(conformer.atom_name == atom_array.atom_name[j])[0]
-                if len(matching_atom_idx) == 0:
-                    print(f'Warning: could not find matching atom for residue {res_name}')
+                        mol = generate_conformers(mol)
+                        cached_conformers[(res_name, chain_iid)] = atom_array_from_rdkit(mol, conformer_id=0)
+                    conformer = cached_conformers[(res_name, chain_iid)]
                 else:
-                    positions[j] = conformer.coord[matching_atom_idx]
+                    if res_name not in cached_unknown_conformers:
+                        res_atom_array = atom_array[residue_starts[i]:residue_ends[i]]
+                        cached_unknown_conformers[res_name] = sample_rdkit_conformer_for_atom_array(res_atom_array)
+
+                    conformer = cached_unknown_conformers[res_name]
+
+                for j in range(residue_starts[i], residue_ends[i]):
+                    matching_atom_idx = np.nonzero(conformer.atom_name == atom_array.atom_name[j])[0]
+                    if len(matching_atom_idx) == 0:
+                        print(f'Warning: could not find matching atom for residue {res_name}')
+                    else:
+                        positions[j] = conformer.coord[matching_atom_idx]
+            except Exception as e:
+                print('Issues with conformer generation, setting coordinates to zero.')
+                print(e)
 
         """ End of your code """
 

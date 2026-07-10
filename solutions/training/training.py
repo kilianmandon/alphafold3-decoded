@@ -1,22 +1,17 @@
 import os
+
+import tqdm
 import lightning as L
 # Set so that Atomworks does not raise a warning, we don't need to actually download the mirrors for this notebook.
 os.environ["PDB_MIRROR_PATH"] = ""
 os.environ["CCD_MIRROR_PATH"] = ""
 
 import time
+import tensortrace as ttr
 
 import torch
 import pickle
 
-import logging
-logger = logging.getLogger('rdkit')
-logger.handlers[0].setLevel(logging.ERROR)
-logger.handlers[0].setFormatter(logging.Formatter('[RDKit] %(levelname)s:%(message)s'))
-from rdkit import rdBase
-from rdkit import RDLogger  
-RDLogger.DisableLog('rdApp.*')
-rdBase.LogToPythonLogger()
 
 from torch_snapkit import memory_snapshot
 
@@ -39,7 +34,8 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, ):
     n_atoms = batch.reference_features.positions.shape[-2]
     device = batch.reference_features.positions.device
 
-    s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
+    with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+        s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
     t1 = time.time()
     print(f'Evoformer complete {t1-t0:.1f} s')
 
@@ -72,7 +68,8 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, ):
         x_gt_randaug = model.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
         x_gt_noisy = x_gt_randaug + noise
 
-        x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input_d, s_trunk_d, z_trunk_d, rel_feat_d, batch)
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+            x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input_d, s_trunk_d, z_trunk_d, rel_feat_d, batch)
         loss = mse_loss(x_denoised, x_gt, x_gt_mask, batch).mean() / num_repeats
         loss.backward()
         total_loss += loss.detach()
@@ -84,6 +81,29 @@ def training_forward(model: Model, batch_with_labels: dict, config: Config, ):
     print(f'Evo back {time.time()-t2:.1f} s')
     
     return total_loss
+
+def basic_test():
+    config = Config()
+    config.global_config.n_cycle = 1
+    config.diffusion_config.denoising_steps = 1
+    config.global_config.c_m = 32
+    config.global_config.c_z = 64
+    config.global_config.c_s = 384
+    config.evoformer_config.msa_module_config.n_blocks = 1
+    
+    device='cuda'
+    model = Model(config)
+    model.to(device)
+    block = model.evoformer.msa_module.blocks[0].core.triangle_att_starting
+    block.compile()
+
+    for i in tqdm.tqdm(range(5)):
+        z = ttr.load('z_msa_mod').to(device)
+        single_mask = ttr.load('single_mask_msa_mod').to(device)
+
+        # out = block(z, single_mask, activation_checkpointing=False)
+        out = block(z, single_mask)
+        out.sum().backward()
 
 def basic_step():
     config = Config()
@@ -97,12 +117,12 @@ def basic_step():
     # dataset = build_af3_dataset(config)
     # torch.random.manual_seed(35)
     # sampler = build_sampler(dataset)
-    # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=32, collate_fn=lambda x: collate_batch_drop_none(x, config))
+    # loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=8, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
     # dl_iter = iter(loader)
 
 
-    # samples = [next(dl_iter) for i in range(10)]
+    # samples = [next(dl_iter) for i in range(5)]
 
     # with open('test_samples.pkl', 'wb') as f:
     #     pickle.dump(samples, f)
@@ -115,8 +135,9 @@ def basic_step():
         samples = pickle.load(f)
 
     samples = tree_map(lambda x: x.to(device='cuda'), samples, skip_unconvertible_entries=True)
+    optim = torch.optim.Adam(model.parameters())
 
-    for i in range(3, 20):
+    for i in range(2):
         t = time.time()
 
         it_samples = samples[i]
@@ -129,9 +150,11 @@ def basic_step():
 
 
         
-        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
-            training_forward(model, it_samples, config)
+        optim.zero_grad()
+        
+        training_forward(model, it_samples, config)
         print(f'Tokk {time.time()-t:.1f} s')
+        optim.step()
 
 
 
@@ -160,7 +183,7 @@ def main():
     t0 = time.time()
     dataset = build_af3_dataset(config)
     sampler = build_sampler(dataset)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=0, collate_fn=lambda x: collate_batch_drop_none(x, config))
+    loader = torch.utils.data.DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=8, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
     # Force initialization by accessing dynamo first
     # Currently only works with export TORCHINDUCTOR_MIX_ORDER_REDUCTION=0
@@ -174,10 +197,10 @@ def main():
     # model.evoformer.compile(fullgraph=True)
     # model.diffusion_module.compile(fullgraph=True)
     # torch.compiler.reset()
-    # model.regional_compile()
+    model.regional_compile()
 
     af3_training_module = AF3TrainingModule(model, config, 2)
-    trainer = L.Trainer(max_steps=1, num_nodes=1)
+    trainer = L.Trainer(max_steps=2, num_nodes=1)
 
     # TODO: check for correctness (does checkpointing use kwargs?)
     torch.autograd.graph.set_warn_on_accumulate_grad_stream_mismatch(False)
@@ -191,7 +214,8 @@ if __name__=='__main__':
     # with torch.autograd.detect_anomaly():
     # with memory_snapshot('training_mixed', share=True, share_code='kilis_new_af3_secret3'):
     # main()
-    basic_step()
+    with memory_snapshot('pl_training', share=True, share_code='kilis_new_af3_secret4'):
+        main()
 
 
 
