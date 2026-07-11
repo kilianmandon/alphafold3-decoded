@@ -109,10 +109,10 @@ def basic_step():
     config = Config()
     config.global_config.n_cycle = 1
     config.diffusion_config.denoising_steps = 1
-    config.global_config.c_m = 32
-    config.global_config.c_z = 64
-    config.global_config.c_s = 384
-    config.evoformer_config.msa_module_config.n_blocks = 1
+    # config.global_config.c_m = 32
+    # config.global_config.c_z = 64
+    # config.global_config.c_s = 384
+    # config.evoformer_config.msa_module_config.n_blocks = 1
 
     # dataset = build_af3_dataset(config)
     # torch.random.manual_seed(35)
@@ -137,7 +137,7 @@ def basic_step():
     samples = tree_map(lambda x: x.to(device='cuda'), samples, skip_unconvertible_entries=True)
     optim = torch.optim.Adam(model.parameters())
 
-    for i in range(2):
+    for i in range(5):
         t = time.time()
 
         it_samples = samples[i]
@@ -147,8 +147,6 @@ def basic_step():
         batch = it_samples['batch']
         batch.reference_features.setup_block_mask(config.training_config.diffusion_micro_batch_size)
         batch.token_features.setup_block_mask()
-
-
         
         optim.zero_grad()
         
@@ -199,8 +197,8 @@ def main():
     # torch.compiler.reset()
     model.regional_compile()
 
-    af3_training_module = AF3TrainingModule(model, config, 2)
-    trainer = L.Trainer(max_steps=2, num_nodes=1)
+    af3_training_module = AF3TrainingModule(model, config, num_devices=2)
+    trainer = L.Trainer(max_steps=4, accelerator='gpu', devices=[0])
 
     # TODO: check for correctness (does checkpointing use kwargs?)
     torch.autograd.graph.set_warn_on_accumulate_grad_stream_mismatch(False)
@@ -214,8 +212,8 @@ if __name__=='__main__':
     # with torch.autograd.detect_anomaly():
     # with memory_snapshot('training_mixed', share=True, share_code='kilis_new_af3_secret3'):
     # main()
-    with memory_snapshot('pl_training', share=True, share_code='kilis_new_af3_secret4'):
-        main()
+    # with memory_snapshot('pl_training', share=True, share_code='kilis_new_af3_secret4'):
+    basic_step()
 
 
 
