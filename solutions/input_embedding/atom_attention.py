@@ -58,6 +58,7 @@ class AtomAttentionEncoder(nn.Module):
             self.trunk_linear_r = nn.Linear(3, c_atom, bias=False)
 
 
+    @activation_checkpointing
     def forward(self, reference_features: ReferenceFeatures, r=None, s_trunk=None, z=None):
         ref_space_uid = reference_features.ref_space_uid
         ref_pos = reference_features.positions

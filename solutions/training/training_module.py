@@ -57,9 +57,14 @@ def mse_loss(x_out, x_gt, x_gt_mask, batch: Batch):
     return mse
 
 class AF3TrainingModule:
-    def __init__(self, ddp_model, config: Config, num_devices: int):
+    def __init__(self, model, config: Config, num_devices: int):
         super().__init__()
-        self.ddp_model = ddp_model
+        self.distributed = num_devices > 1
+        if self.distributed:
+            self.model = torch.nn.parallel.DistributedDataParallel(model)
+        else:
+            self.model = model
+        
         self.config = config
         self.num_devices = num_devices
         assert config.training_config.batch_size % (num_devices*config.training_config.micro_batch_size) == 0, 'Batch size must be divisible by num_devices*micro_batch_size.'
@@ -75,6 +80,11 @@ class AF3TrainingModule:
         sigma_data = self.config.diffusion_config.sigma_data
         amp_context = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
 
+        if self.distributed:
+            model = self.model.module
+        else:
+            model = self.model
+
         def expand_to_diffusion_shape(x):
             return x[None, ...].broadcast_to((training_config.diffusion_micro_batch_size,)+x.shape)
 
@@ -88,14 +98,14 @@ class AF3TrainingModule:
         for i in range(num_repeats):
             noise_amount = sigma_data * torch.exp(-1.2 + 1.5 * torch.randn(diffusion_batch_shape, device=device))
             noise = torch.randn(x_gt.shape, device=device) * noise_amount[..., None, None]
-            x_gt_randaug = self.ddp_model.module.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
+            x_gt_randaug = model.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
             x_gt_noisy = x_gt_randaug + noise
 
-            local_sync_context = self.ddp_model.no_sync() if self.num_devices>1 and i!=num_repeats-1 else contextlib.nullcontext()
+            local_sync_context = self.model.no_sync() if self.distributed and i!=num_repeats-1 else contextlib.nullcontext()
 
             with local_sync_context:
                 with amp_context:
-                    x_denoised = self.ddp_model.module.diffusion_module.forward(x_gt_noisy, noise_amount, s_input, s_trunk, z_trunk, rel_feat, batch)
+                    x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input, s_trunk, z_trunk, rel_feat, batch)
 
                     loss = mse_loss(x_denoised, x_gt, x_gt_mask, batch).mean() / (num_repeats * self.global_grad_accum_steps)
                 if do_backward:
@@ -111,18 +121,20 @@ class AF3TrainingModule:
         x_gt_shape = batch.reference_features.positions.shape
         device = batch.reference_features.positions.device
 
+        model = self.model if not self.distributed else self.model.module
+
         batch.reference_features.setup_block_mask(self.config.training_config.diffusion_micro_batch_size)
         batch.token_features.setup_block_mask()
         
 
-        global_sync = (self.num_devices == 1) or (batch_idx+1) % self.global_grad_accum_steps == 0
-        global_sync_context = self.ddp_model.no_sync() if not global_sync else contextlib.nullcontext()
+        global_sync = (not self.distributed) or (batch_idx+1) % self.global_grad_accum_steps == 0
+        global_sync_context = self.model.no_sync() if not global_sync else contextlib.nullcontext()
 
         amp_context = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
 
         with global_sync_context:
             with amp_context:
-                s_input, s_trunk, z_trunk, rel_feat = self.ddp_model.module.evoformer(batch)
+                s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
 
             x_gt = [torch.tensor(atom_array.coord, device=device) for atom_array in batch_with_labels["atom_array"]]
             x_gt = utils.pad_to_shape(collate_batch(x_gt), x_gt_shape)
@@ -147,6 +159,6 @@ class AF3TrainingModule:
         return self._shared_step(batch_with_labels, batch_idx, stage='val')
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.ddp_model.parameters(), lr=1e-3)
+        return torch.optim.Adam(self.model.parameters(), lr=1e-3)
 
 

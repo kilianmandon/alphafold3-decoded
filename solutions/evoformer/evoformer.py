@@ -91,6 +91,7 @@ class TemplateEmbedder(nn.Module):
         self.pair_stack = nn.ModuleList(
             [PairStack(config.c, config.n_head_pairstack, config.n_transition_pairstack, config.p_dropout_pairstack) for _ in range(config.n_blocks)])
 
+    @utils.activation_checkpointing
     def forward(self, batch: Batch, z: torch.Tensor):
         target_feat = batch.msa_features.target_feat
         batch_shape = target_feat.shape[:-2]
@@ -114,7 +115,7 @@ class TemplateEmbedder(nn.Module):
             v = self.linear_z(self.layer_norm_z(z)) + \
                 self.linear_a(dummy_a[..., i, :])
             for block in self.pair_stack:
-                v = block(v, single_mask)
+                v = block(v, single_mask, activation_checkpointing=False)
             u = u + self.layer_norm_v(v)
 
         u = u / n_templates
@@ -379,6 +380,7 @@ class MSAModule(nn.Module):
         self.blocks = nn.ModuleList(
             [MSAModuleBlock(c_m, c_z, config) for _ in range(config.n_blocks)])
 
+    @utils.activation_checkpointing
     def forward(self, batch: Batch, s_input, z):
         msa_feat = batch.msa_features.msa_feat
         msa_mask = batch.msa_features.msa_mask

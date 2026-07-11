@@ -152,6 +152,7 @@ class ConditionedTransitionBlock(nn.Module):
         # Note: This should be initialized with bias -2
         self.ada_zero_init = AdaptiveZeroInit(n*c_a, c_s, c_a)
     
+    @activation_checkpointing
     def forward(self, a, s):
         a = self.adaptive_layernorm(a, s)
         b = F.silu(self.linear_a1(a)) * self.linear_a2(a)
