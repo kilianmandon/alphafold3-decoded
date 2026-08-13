@@ -3,6 +3,7 @@ import contextlib
 import lightning as L
 import torch
 from common import utils
+from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from config import Config
 from diffusion.model import Model
@@ -123,8 +124,9 @@ class AF3TrainingModule:
 
         model = self.model if not self.distributed else self.model.module
 
-        batch.reference_features.setup_block_mask(self.config.training_config.diffusion_micro_batch_size)
-        batch.token_features.setup_block_mask()
+        with unset_fake_temporarily():
+            batch.reference_features.setup_block_mask(self.config.training_config.diffusion_micro_batch_size)
+            batch.token_features.setup_block_mask()
         
 
         global_sync = (not self.distributed) or (batch_idx+1) % self.global_grad_accum_steps == 0

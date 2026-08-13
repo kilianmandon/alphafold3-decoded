@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import os
 import pickle
@@ -5,6 +6,7 @@ from torch_snapkit import memory_snapshot
 import tqdm
 
 import torch
+from torch.profiler import ProfilerActivity, profile
 
 from config import Config
 from diffusion.model import Model
@@ -33,11 +35,14 @@ def main():
     config.diffusion_config.denoising_steps = 1
     model = Model(config)
 
-    train_ds = build_af3_dataset(config)
-    sampler = build_sampler(train_ds)
-    train_dl = torch.utils.data.DataLoader(train_ds, num_workers=15, batch_size=1, sampler=sampler, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
     rank, local_rank, world_size, device = setup_ddp()
+
+    train_ds = build_af3_dataset(config)
+    sampler = build_sampler(train_ds)
+    train_dl = torch.utils.data.DataLoader(train_ds, num_workers=15, batch_size=config.training_config.micro_batch_size, sampler=sampler, collate_fn=lambda x: collate_batch_drop_none(x, config))
+
+    config.training_config.batch_size = config.training_config.micro_batch_size * world_size
     # rank = 0; world_size=1; device='cuda:0'
     model.to(device)
     model.regional_compile()
@@ -48,23 +53,34 @@ def main():
     training_model = AF3TrainingModule(model, config, num_devices=world_size)
     opt = training_model.configure_optimizers()
 
-    n_steps =  2
+    n_steps =  3
     # samples = [batch for _, batch in zip(range(n_steps), train_dl)]
     # with open('test_samples.pkl', 'wb') as f:
     #     pickle.dump(samples, f)
 
-    with open('test_samples.pkl', 'rb') as f:
-        samples = pickle.load(f)
+    # with open('test_samples.pkl', 'rb') as f:
+    #     samples = pickle.load(f)
 
-    pbar = tqdm.tqdm(samples, total=n_steps, smoothing=1)
+    pbar = tqdm.tqdm(train_dl, total=n_steps, smoothing=1)
 
 
     for batch_idx, batch in enumerate(pbar):
         batch = tree_map(lambda x: x.to(device), batch, skip_unconvertible_entries=True)
-        loss = training_model.training_step(batch, batch_idx)
-        print(torch.cuda.memory_allocated() / 1e9, "GB allocated")
-        print(torch.cuda.memory_reserved() / 1e9, "GB reserved")
-        print(torch.cuda.max_memory_reserved() / 1e9, "GB peak reserved")
+        do_profile = batch_idx == 2 and rank==0
+        context = contextlib.nullcontext() if not do_profile else profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])
+        with context:
+            loss = training_model.training_step(batch, batch_idx)
+
+        if do_profile:
+            text = context.key_averages().table(sort_by='self_cuda_time_total', row_limit=30)
+            with open('profile.txt', 'rb') as f:
+                f.write(text)
+            print(text)
+
+        # print(torch.cuda.memory_allocated() / 1e9, "GB allocated")
+        # print(torch.cuda.memory.max_memory_allocated() / 1e9, "GB peak allocated")
+        # print(torch.cuda.memory_reserved() / 1e9, "GB reserved")
+        # print(torch.cuda.max_memory_reserved() / 1e9, "GB peak reserved")
 
         if world_size>1:
             dist.all_reduce(loss, dist.ReduceOp.AVG)
@@ -72,7 +88,7 @@ def main():
             pbar.set_postfix(train_loss=loss.item())
 
 
-        if (batch_idx+1) % training_model.global_grad_accum_steps:
+        if (batch_idx+1) % training_model.global_grad_accum_steps == 0:
             opt.step()
             opt.zero_grad()
         
@@ -84,8 +100,7 @@ def main():
 
 if __name__=='__main__':
     try:
-        with memory_snapshot('training_single_device_serious_checkpointing', share=True, share_code='daily-secret-05'):
-            main()
+        main()
     finally:
         if dist.is_initialized():
             dist.destroy_process_group()
