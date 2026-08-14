@@ -22,7 +22,7 @@ torch._dynamo.config.recompile_limit = 64
 torch._dynamo.config.accumulated_recompile_limit = 256
 
 def setup_ddp():
-    dist.init_process_group('nccl', timeout=datetime.timedelta(seconds=60))
+    dist.init_process_group('nccl', timeout=datetime.timedelta(minutes=5))
 
     rank = int(os.environ['RANK'])
     local_rank = int(os.environ['LOCAL_RANK'])
@@ -48,7 +48,7 @@ def main():
     train_ds = build_af3_dataset(config)
     sampler = build_sampler(train_ds)
     avail_workers = len(os.sched_getaffinity(0))
-    num_workers = min(max(1, (avail_workers-2)//world_size - 1), 32)
+    num_workers = min(max(1, (avail_workers-2)//world_size - 1), 6)
     print(f'[rank{rank}]: {num_workers}/{avail_workers} workers used')
     train_dl = torch.utils.data.DataLoader(train_ds, num_workers=num_workers, batch_size=config.training_config.micro_batch_size, sampler=sampler, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
@@ -72,7 +72,7 @@ def main():
 
 
     n_steps = 50
-    pbar = tqdm.tqdm(train_dl, total=n_steps, smoothing=1)
+    pbar = tqdm.tqdm(train_dl, total=n_steps)
 
     if rank==0:
         wandb.init(
