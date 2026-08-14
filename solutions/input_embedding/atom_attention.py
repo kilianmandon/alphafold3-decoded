@@ -46,7 +46,7 @@ class AtomAttentionEncoder(nn.Module):
             nn.Linear(c_atompair, c_atompair, bias=False)
         )
 
-        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atompair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True)
+        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atompair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True, bst_bias=True)
         self.project_atom_features = nn.Linear(c_atom, config.c_token, bias=False)
 
         self.use_trunk = use_trunk
@@ -84,11 +84,11 @@ class AtomAttentionEncoder(nn.Module):
         offsets = ref_pos_left - ref_pos_right
 
 
-        pair_act = self.embed_pair_offsets(offsets) * offsets_valid
+        pair_act = offsets.map(self.embed_pair_offsets) * offsets_valid
 
-        sq_dists = torch.sum(offsets**2, dim=-1, keepdim=True)
+        sq_dists = (offsets**2).map(lambda x: torch.sum(x, dim=-1, keepdim=True))
 
-        pair_act = pair_act + self.embed_pair_distances(1/(1+sq_dists)) * offsets_valid
+        pair_act = pair_act + (1/(1+sq_dists)).map(self.embed_pair_distances) * offsets_valid
 
         if self.use_trunk:
             single_act, single_cond, pair_act = self.trunk_update(reference_features, pair_act, single_cond, r, s_trunk, z)
@@ -100,9 +100,9 @@ class AtomAttentionEncoder(nn.Module):
         col_act = BlockSparseTensor.from_broadcast(col_act[..., None, :, :], block_mask, batch_shape)
 
         pair_act = pair_act + row_act + col_act
-        pair_act = pair_act + self.embed_pair_mask(offsets_valid)
+        pair_act = pair_act + offsets_valid.map(self.embed_pair_mask)
 
-        pair_act = pair_act + self.pair_mlp(pair_act)
+        pair_act = pair_act + pair_act.map(self.pair_mlp)
 
         single_act = self.atom_transformer(
             single_act,
@@ -172,7 +172,7 @@ class AtomAttentionDecoder(nn.Module):
         c_atom = config.c_atom
         c_atomapair = config.c_atompair
         self.linear_a = nn.Linear(config.c_token, c_atom, bias=False)
-        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atomapair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True)
+        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atomapair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True, bst_bias=True)
         self.layer_norm_q = nn.LayerNorm(c_atom, bias=False)
         self.linear_out = nn.Linear(c_atom, 3, bias=False)
 

@@ -166,27 +166,8 @@ class BlockSparseTensor:
     def __eq__(self, other):
         return self._wrap(self.physical == self._unwrap(other))
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        if kwargs is None:
-            kwargs = {}
-
-        bst = next(x for x in args if isinstance(x, BlockSparseTensor))
-
-        def unwrap(x):
-            return x.physical if isinstance(x, BlockSparseTensor) else x
-
-        unwrapped_args = tuple(unwrap(a) for a in args)
-        unwrapped_kwargs = {k: unwrap(v) for k, v in kwargs.items()}
-
-        result = func(*unwrapped_args, **unwrapped_kwargs)
-
-        if isinstance(result, torch.Tensor):
-            return bst._wrap(result)
-        elif isinstance(result, tuple):
-            return tuple(bst._wrap(r) if isinstance(r, torch.Tensor) else r for r in result)
-        else:
-            return result
+    def map(self, fn):
+        return self._wrap(fn(self.physical))
 
     def clone(self):
         return self._wrap(self.physical.clone())

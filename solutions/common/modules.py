@@ -1,4 +1,4 @@
-from torch.nn.attention.flex_attention import BlockMask, flex_attention
+from torch.nn.attention.flex_attention import flex_attention
 import common.utils as utils
 from common.utils import activation_checkpointing
 import torch
@@ -40,7 +40,7 @@ class AdaptiveZeroInit(nn.Module):
 
 
 class AttentionPairBias(nn.Module):
-    def __init__(self, c_a, c_z, n_head, c_s=None, adaptive=False, biased_layer_norm_z=True, split_ada_qk=False):
+    def __init__(self, c_a, c_z, n_head, c_s=None, adaptive=False, biased_layer_norm_z=True, split_ada_qk=False, bst_bias=False):
         super().__init__()
         c = c_a//n_head
         if adaptive:
@@ -55,6 +55,7 @@ class AttentionPairBias(nn.Module):
         else:
             self.layer_norm_a = nn.LayerNorm(c_a)
 
+        self.bst_bias = bst_bias
         self.layer_norm_z = nn.LayerNorm(c_z, bias=biased_layer_norm_z)
         self.linear_q = nn.Linear(c_a, c*n_head)
         self.linear_k = nn.Linear(c_a, c*n_head, bias=False)
@@ -96,7 +97,10 @@ class AttentionPairBias(nn.Module):
         v = self.linear_v(a_k).unflatten(-1, (N_head, c))
         g = self.linear_g(a_q).unflatten(-1, (N_head, c))
 
-        bias = self.linear_b(self.layer_norm_z(z))
+        if self.bst_bias:
+            bias = z.map(self.layer_norm_z).map(self.linear_b)
+        else:
+            bias = self.linear_b(self.layer_norm_z(z))
 
         q = torch.einsum('...ihc->...hic', q)
         k = torch.einsum('...jhc->...hjc', k)
@@ -107,8 +111,16 @@ class AttentionPairBias(nn.Module):
         v = utils.unify_batch_dimension(v, batch_shape)
         bias = utils.unify_batch_dimension(bias, batch_shape)
 
-        def bias_score_mod(score, b, h, q_idx, kv_idx):
-            return score + bias[b, q_idx, kv_idx, h]
+        if self.bst_bias:
+            W = int(bias.block_size)
+            lookup_table = bias.lookup_table
+            physical = bias.physical
+            def bias_score_mod(score, b, h, q_idx, kv_idx):
+                bias_val = physical[lookup_table[b, q_idx//W, kv_idx//W], q_idx%W, kv_idx%W, h]
+                return score + bias_val
+        else:
+            def bias_score_mod(score, b, h, q_idx, kv_idx):
+                return score + bias[b, q_idx, kv_idx, h]
 
         q = q.contiguous(); k = k.contiguous(); v = v.contiguous()
         o = self.flex_attention(q, k, v, score_mod=bias_score_mod, block_mask=extended_block_mask.block_mask, kernel_options={ 'BLOCK_M': 32, 'BLOCK_N': 32 })
@@ -160,9 +172,9 @@ class ConditionedTransitionBlock(nn.Module):
         return a
 
 class DiffusionTransformer(nn.Module):
-    def __init__(self, c_a, c_z, n_head, c_s, n_blocks, split_ada_qk=False):
+    def __init__(self, c_a, c_z, n_head, c_s, n_blocks, split_ada_qk=False, bst_bias=False):
         super().__init__()
-        self.att_pair_bias = nn.ModuleList([AttentionPairBias(c_a, c_z, n_head, c_s, adaptive=True, biased_layer_norm_z=False, split_ada_qk=split_ada_qk) for _ in range(n_blocks)])
+        self.att_pair_bias = nn.ModuleList([AttentionPairBias(c_a, c_z, n_head, c_s, adaptive=True, biased_layer_norm_z=False, split_ada_qk=split_ada_qk, bst_bias=bst_bias) for _ in range(n_blocks)])
         self.cond_trans = nn.ModuleList([ConditionedTransitionBlock(c_a, c_s) for _ in range(n_blocks)])
         self.N_block = n_blocks
 

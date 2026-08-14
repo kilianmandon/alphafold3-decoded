@@ -23,7 +23,6 @@ class Model(nn.Module):
 
     def regional_compile(self, fullgraph=True):
         # Evoformer modules
-        # # self.evoformer.input_embedder.compile(fullgraph=fullgraph)
         # for block in self.evoformer.template_embedder.pair_stack:
         #     block.compile(fullgraph=fullgraph, dynamic=False)
 
@@ -34,16 +33,15 @@ class Model(nn.Module):
             block.compile(fullgraph=fullgraph, dynamic=False)
 
         # Diffusion modules
-        # self.diffusion_module.diffusion_conditioning.compile(fullgraph=fullgraph)
-        # self.diffusion_module.atom_att_enc.atom_transformer.compile(fullgraph=fullgraph)
-        # self.diffusion_module.atom_att_enc.compile(fullgraph=fullgraph)
+        self.diffusion_module.diffusion_conditioning.compile(fullgraph=fullgraph)
+        self.diffusion_module.atom_att_enc.compile(fullgraph=fullgraph)
+        self.diffusion_module.atom_att_dec.compile(fullgraph=fullgraph)
 
         for att_pair_bias_block in self.diffusion_module.diffusion_transformer.att_pair_bias:
-            att_pair_bias_block.compile(fullgraph=fullgraph, dynamic=False)
+            att_pair_bias_block.compile(fullgraph=fullgraph)
 
         for cond_trans_block in self.diffusion_module.diffusion_transformer.cond_trans:
-            cond_trans_block.compile(fullgraph=fullgraph, dynamic=False)
-        ...
+            cond_trans_block.compile(fullgraph=fullgraph)
 
 
 

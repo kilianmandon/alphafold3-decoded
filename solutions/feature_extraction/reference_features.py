@@ -86,6 +86,16 @@ class ReferenceFeatures:
         else:
             return ref_mask
 
+    # Precompute these properties before calling the model
+    # Fixed size indices out of the compiled region avoid graph breaks
+    @cached_property
+    def token_layout_ref_mask_nonzero(self):
+        return self.token_layout_ref_mask.reshape(-1).nonzero(as_tuple=True)[0]
+
+    @cached_property
+    def mask_nonzero(self):
+        return self.mask.reshape(-1).nonzero(as_tuple=True)[0]
+
 
     def to_token_layout(self, feature):
         """
@@ -95,7 +105,6 @@ class ReferenceFeatures:
         batch_shape = self.mask.shape[:-1]
         token_count = self.atom_count // 24
         feature = torch.as_tensor(feature)
-        token_layout_ref_mask = torch.as_tensor(self.token_layout_ref_mask)
         out = None
 
         """
@@ -108,7 +117,14 @@ class ReferenceFeatures:
         feature_shape = feature.shape[len(batch_shape)+1:]
         out_shape = batch_shape + (token_count, 24) + feature_shape
         out = torch.zeros(out_shape, dtype=feature.dtype, device=feature.device)
-        out[token_layout_ref_mask] = feature[self.mask]
+
+        # Previously (also correct):
+        # out[self.token_layout_ref_mask] = feature[self.mask]
+        # Switched to index-based mapping to allow for torch.compile
+
+        out_flat = out.reshape((-1,) + feature_shape)
+        feat_flat = feature.reshape((-1,) + feature_shape)
+        out_flat[self.token_layout_ref_mask_nonzero] = feat_flat[self.mask_nonzero]
 
         """ End of your code """
 
@@ -155,9 +171,6 @@ class ReferenceFeatures:
         """
         batch_shape = self.element.shape[:-1]
         feature = torch.as_tensor(feature)
-        mask = torch.as_tensor(self.mask)
-        token_layout_ref_mask = torch.as_tensor(self.token_layout_ref_mask)
-
         out = None
 
         """
@@ -168,9 +181,18 @@ class ReferenceFeatures:
         if not has_atom_dimension:
             feature = self.patch_atom_dimension(feature)
 
-        out_shape = batch_shape + (self.atom_count,) + feature.shape[len(batch_shape)+2:]
+        feature_shape = feature.shape[len(batch_shape)+2:]
+        out_shape = batch_shape + (self.atom_count,) + feature_shape
+        
         out = torch.zeros(out_shape, dtype=feature.dtype, device=feature.device)
-        out[mask] = feature[token_layout_ref_mask]
+
+        # Previously (also correct):
+        # out[self.mask] = feature[self.token_layout_ref_mask]
+        # Switched to index-based mapping to allow for torch.compile
+
+        out_flat = out.reshape((-1,) + feature_shape)
+        feat_flat = feature.reshape((-1,) + feature_shape)
+        out_flat[self.mask_nonzero] = feat_flat[self.token_layout_ref_mask_nonzero]
 
         """ End of your code """
 
@@ -178,6 +200,12 @@ class ReferenceFeatures:
             return out.numpy()
         else:   
             return out
+
+    def materialize(self) -> None:
+        _ = self.token_layout_ref_mask_nonzero
+        _ = self.mask_nonzero
+        _ = self.token_layout_ref_mask
+
 
     def setup_block_mask(self, num_diffusion_samples=None) -> None:
         """

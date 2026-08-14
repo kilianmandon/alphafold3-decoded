@@ -111,7 +111,7 @@ class DiffusionConfig:
 @dataclass
 class TrainingConfig:
     micro_batch_size: int = 1
-    batch_size: int = 1
+    batch_size: int = 8
 
     diffusion_micro_batch_size: int = 6
     diffusion_batch_size = 48

@@ -74,7 +74,7 @@ class TokenFeatures:
             return torch.sum(self.mask, dim=-1)
         
 
-    def setup_block_mask(self) -> ExtendedBlockMask:
+    def setup_block_mask(self) -> None:
         block_mask = None
 
         """ 

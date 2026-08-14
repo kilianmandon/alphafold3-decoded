@@ -1,4 +1,5 @@
 import contextlib
+import torch.distributed as dist
 
 import lightning as L
 import torch
@@ -61,10 +62,7 @@ class AF3TrainingModule:
     def __init__(self, model, config: Config, num_devices: int):
         super().__init__()
         self.distributed = num_devices > 1
-        if self.distributed:
-            self.model = torch.nn.parallel.DistributedDataParallel(model)
-        else:
-            self.model = model
+        self.model = model
         
         self.config = config
         self.num_devices = num_devices
@@ -81,39 +79,51 @@ class AF3TrainingModule:
         sigma_data = self.config.diffusion_config.sigma_data
         amp_context = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
 
-        if self.distributed:
-            model = self.model.module
-        else:
-            model = self.model
+        model = self.model
 
         def expand_to_diffusion_shape(x):
             return x[None, ...].broadcast_to((training_config.diffusion_micro_batch_size,)+x.shape)
 
         x_gt, s_input, s_trunk, z_trunk, rel_feat, batch = tree_map(expand_to_diffusion_shape, (x_gt, s_input, s_trunk, z_trunk, rel_feat, batch), skip_unconvertible_entries=True)
+        batch.reference_features.materialize()
 
         assert not rel_feat.requires_grad
 
         num_repeats = training_config.diffusion_batch_size // training_config.diffusion_micro_batch_size
 
         total_loss = torch.tensor(0, device=device, dtype=torch.float32)
-        for i in range(num_repeats):
+        for _ in range(num_repeats):
             noise_amount = sigma_data * torch.exp(-1.2 + 1.5 * torch.randn(diffusion_batch_shape, device=device))
             noise = torch.randn(x_gt.shape, device=device) * noise_amount[..., None, None]
             x_gt_randaug = model.diffusion_sampler.center_random_aug(x_gt, batch.reference_features)
             x_gt_noisy = x_gt_randaug + noise
 
-            local_sync_context = self.model.no_sync() if self.distributed and i!=num_repeats-1 else contextlib.nullcontext()
 
-            with local_sync_context:
-                with amp_context:
-                    x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input, s_trunk, z_trunk, rel_feat, batch)
+            with amp_context:
+                x_denoised = model.diffusion_module.forward(x_gt_noisy, noise_amount, s_input, s_trunk, z_trunk, rel_feat, batch)
 
-                    loss = mse_loss(x_denoised, x_gt, x_gt_mask, batch).mean() / (num_repeats * self.global_grad_accum_steps)
-                if do_backward:
-                    loss.backward()
+                loss = mse_loss(x_denoised, x_gt, x_gt_mask, batch).mean() / (num_repeats * self.global_grad_accum_steps)
+            if do_backward:
+                loss.backward()
             total_loss += loss.detach()
 
         return total_loss
+
+    def sync_grads(self):
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        for p in params:
+            if p.requires_grad is None:
+                p.grad = torch.zeros_like(p)
+        grads = [p.grad for p in params]
+        flat = torch._utils._flatten_dense_tensors(grads)
+        dist.all_reduce(flat, op=dist.ReduceOp.AVG)
+
+        sq_grad_norm = torch.zeros((), device=params[0].device)
+        for g, synced in zip(grads, torch._utils._unflatten_dense_tensors(flat, grads)):
+            g.copy_(synced)
+            sq_grad_norm += g.double().pow(2).sum()
+
+        return sq_grad_norm.sqrt().item()
 
 
     def _shared_step(self, batch_with_labels: dict, batch_idx: int, stage: str, bf16: bool=True):
@@ -122,35 +132,32 @@ class AF3TrainingModule:
         x_gt_shape = batch.reference_features.positions.shape
         device = batch.reference_features.positions.device
 
-        model = self.model if not self.distributed else self.model.module
+        model = self.model
 
         with unset_fake_temporarily():
             batch.reference_features.setup_block_mask(self.config.training_config.diffusion_micro_batch_size)
             batch.token_features.setup_block_mask()
+            batch.reference_features.materialize()
         
-
-        global_sync = (not self.distributed) or (batch_idx+1) % self.global_grad_accum_steps == 0
-        global_sync_context = self.model.no_sync() if not global_sync else contextlib.nullcontext()
 
         amp_context = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()
 
-        with global_sync_context:
-            with amp_context:
-                s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
+        with amp_context:
+            s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
 
-            x_gt = [torch.tensor(atom_array.coord, device=device) for atom_array in batch_with_labels["atom_array"]]
-            x_gt = utils.pad_to_shape(collate_batch(x_gt), x_gt_shape)
-            x_gt_mask = ~(x_gt.isnan().any(dim=-1))
-            x_gt[~x_gt_mask] = 0
+        x_gt = [torch.tensor(atom_array.coord, device=device) for atom_array in batch_with_labels["atom_array"]]
+        x_gt = utils.pad_to_shape(collate_batch(x_gt), x_gt_shape)
+        x_gt_mask = ~(x_gt.isnan().any(dim=-1))
+        x_gt[~x_gt_mask] = 0
 
-            s_input_d = s_input.detach().requires_grad_(True)
-            s_trunk_d = s_trunk.detach().requires_grad_(True)
-            z_trunk_d = z_trunk.detach().requires_grad_(True)
+        s_input_d = s_input.detach().requires_grad_(True)
+        s_trunk_d = s_trunk.detach().requires_grad_(True)
+        z_trunk_d = z_trunk.detach().requires_grad_(True)
 
-            loss = self._diffusion_step(x_gt, x_gt_mask, s_input_d, s_trunk_d, z_trunk_d, rel_feat, batch, bf16=bf16, do_backward=do_backward)
+        loss = self._diffusion_step(x_gt, x_gt_mask, s_input_d, s_trunk_d, z_trunk_d, rel_feat, batch, bf16=bf16, do_backward=do_backward)
 
-            if do_backward:
-                torch.autograd.backward([s_input, s_trunk, z_trunk], [s_input_d.grad, s_trunk_d.grad, z_trunk_d.grad])
+        if do_backward:
+            torch.autograd.backward([s_input, s_trunk, z_trunk], [s_input_d.grad, s_trunk_d.grad, z_trunk_d.grad])
 
         return loss * self.global_grad_accum_steps
 
