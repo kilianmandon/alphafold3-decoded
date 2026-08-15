@@ -112,7 +112,7 @@ class AF3TrainingModule:
     def sync_grads(self):
         params = [p for p in self.model.parameters() if p.requires_grad]
         for p in params:
-            if p.requires_grad is None:
+            if p.grad is None:
                 p.grad = torch.zeros_like(p)
         grads = [p.grad for p in params]
         flat = torch._utils._flatten_dense_tensors(grads)
