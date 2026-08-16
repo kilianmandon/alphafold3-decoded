@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import pickle
 import time
+
+from torch import multiprocessing
 from common import utils
 from torch_snapkit import memory_snapshot
 import tqdm
@@ -19,7 +21,8 @@ from atomworks.io.utils.io_utils import to_cif_file
 from config import Config
 from diffusion.model import Model
 from feature_extraction.feature_extraction import collate_batch, tree_map
-from training.af3_dataset import af3_pipeline_none_on_error, build_af3_dataset, build_eval_dataset, build_sampler, collate_batch_drop_none
+from training.generation_probe import GenerationProbe
+from training.af3_dataset import af3_pipeline_none_on_error, build_af3_dataset, build_easy_eval_dataset, build_eval_dataset, build_sampler, collate_batch_drop_none
 from training.training_module import AF3TrainingModule, mse_loss
 import torch.distributed as dist
 import torch._dynamo
@@ -84,6 +87,26 @@ def evaluation(training_model, eval_loader, device, step, rank, cif_dir):
 def main():
     config = Config()
     config.global_config.n_cycle = 1
+
+    config.global_config.c_s = 64
+    config.global_config.c_z = 32
+    config.global_config.c_m = 32
+
+    config.evoformer_config.msa_module_config.n_blocks = 1
+    config.evoformer_config.template_module_config.n_blocks = 1
+    config.evoformer_config.pairformer_config.n_blocks = 8
+    config.evoformer_config.pairformer_config.n_head_pairstack = 2
+    config.evoformer_config.msa_module_config.n_head_pairstack = 2
+    config.evoformer_config.pairformer_config.n_head_att_pair_bias = 2
+    config.diffusion_config.n_head_diffusion_transformer = 2
+
+    config.diffusion_config.n_block_diffusion_transformer = 4
+    config.diffusion_config.atom_attention_config.c_token = 32
+    config.diffusion_config.atom_attention_config.n_block_atom_transformer = 1
+
+    config.training_config.batch_size = 4
+    config.training_config.micro_batch_size = 2
+
     model = Model(config)
 
 
@@ -95,16 +118,18 @@ def main():
     eval_ds_pickle_path = Path('eval_ds.pkl')
     if not train_ds_pickle_path.exists() and rank==0:
         print('No training dataset pickle found, building...')
-        train_ds = build_eval_dataset(config, samples_per_group=8, is_inference=False)
-        for ds in train_ds.datasets:
-            ds.transform = None
+        train_ds = build_easy_eval_dataset(config, is_inference=True)
+        train_ds.transform = None
+        # for ds in train_ds.datasets:
+        #     ds.transform = None
         with open(train_ds_pickle_path, 'wb') as f:
             pickle.dump(train_ds, f)
     if not eval_ds_pickle_path.exists() and rank==0:
         print('No eval dataset pickle found, building...')
-        eval_ds = build_eval_dataset(config, samples_per_group=8)
-        for ds in eval_ds.datasets:
-            ds.transform = None
+        eval_ds = build_easy_eval_dataset(config, is_inference=True)
+        eval_ds.transform = None
+        # for ds in eval_ds.datasets:
+        #     ds.transform = None
         with open(eval_ds_pickle_path, 'wb') as f:
             pickle.dump(eval_ds, f)
 
@@ -113,25 +138,46 @@ def main():
 
     with open(train_ds_pickle_path, 'rb') as f:
         train_ds = pickle.load(f)
-        for ds in train_ds.datasets:
-            ds.transform = af3_pipeline_none_on_error(config, is_inference=False)
+        train_ds.transform = af3_pipeline_none_on_error(config, is_inference=True)
+        # for ds in train_ds.datasets:
+        #     ds.transform = af3_pipeline_none_on_error(config, is_inference=True)
 
     with open(eval_ds_pickle_path, 'rb') as f:
         eval_ds = pickle.load(f)
-        for ds in eval_ds.datasets:
-            ds.transform = af3_pipeline_none_on_error(config, is_inference=True)
+        eval_ds.transform = af3_pipeline_none_on_error(config, is_inference=True)
+        # for ds in eval_ds.datasets:
+        #     ds.transform = af3_pipeline_none_on_error(config, is_inference=True)
 
     eval_token_counts = []
-    for batch in torch.utils.data.DataLoader(eval_ds, num_workers=10, collate_fn=lambda x: collate_batch_drop_none(x, config)):
+    for batch in torch.utils.data.DataLoader(eval_ds, num_workers=3, collate_fn=lambda x: collate_batch_drop_none(x, config)):
         eval_token_counts.append(batch['batch'].token_features.token_count)
     if rank==0:
         print(f'Eval token counts: {eval_token_counts}')
 
-    sampler = build_sampler(train_ds)
+
+    # sampler = build_sampler(train_ds)
     avail_workers = len(os.sched_getaffinity(0))
-    num_workers = min(max(1, (avail_workers-2)//world_size - 1), 6)
+    num_workers = 3
     print(f'[rank{rank}]: {num_workers}/{avail_workers} workers used')
-    train_dl = torch.utils.data.DataLoader(train_ds, num_workers=num_workers, batch_size=config.training_config.micro_batch_size, sampler=sampler, collate_fn=lambda x: collate_batch_drop_none(x, config))
+    train_ds = torch.utils.data.Subset(train_ds, indices=range(rank, len(train_ds), world_size))
+
+    n_steps = 5002
+    n_steps_eval = 50
+    n_steps_intermediate = 20
+    
+    class EpochlessDataset:
+        def __init__(self, base_dataset, n_steps):
+            self.base_dataset = base_dataset
+            self.n_steps = n_steps
+
+        def __len__(self):
+            return self.n_steps
+
+        def __getitem__(self, key):
+            return self.base_dataset[key % len(self.base_dataset)]
+
+    # train_ds = EpochlessDataset(train_ds, n_steps)
+    train_dl = torch.utils.data.DataLoader(train_ds, num_workers=num_workers, batch_size=config.training_config.micro_batch_size, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
     eval_ds = torch.utils.data.Subset(eval_ds, indices=range(rank, len(eval_ds), world_size))
     eval_dl = torch.utils.data.DataLoader(eval_ds, num_workers=num_workers, batch_size=config.training_config.micro_batch_size, collate_fn=lambda x: collate_batch_drop_none(x, config))
@@ -158,8 +204,10 @@ def main():
     opt = training_model.configure_optimizers()
 
 
-    n_steps = 500
-    n_steps_eval = 50
+
+    fixed_batch = next(iter(train_dl))
+    probe = GenerationProbe(model, fixed_batch, config, device)
+
 
     if rank==0:
         wandb.init(
@@ -175,11 +223,8 @@ def main():
 
     t0 = time.perf_counter()
 
-    def loop_train_dl():
-        while True:
-            yield from train_dl
 
-    pbar = tqdm.tqdm(loop_train_dl(), total=n_steps)
+    pbar = tqdm.tqdm(train_dl, total=n_steps)
 
     for batch_idx, batch in enumerate(pbar):
         t_data = time.perf_counter() - t0
@@ -187,7 +232,7 @@ def main():
         torch.cuda.reset_peak_memory_stats()
 
         batch = tree_map(lambda x: x.to(device), batch, skip_unconvertible_entries=True)
-        loss = training_model.training_step(batch, batch_idx)
+        loss, log_dict = training_model.training_step(batch, batch_idx)
 
         if world_size>1:
             dist.all_reduce(loss, dist.ReduceOp.AVG)
@@ -207,7 +252,10 @@ def main():
                 'time/data_wait': t_data,
                 'mem/peak_alloc_gb': torch.cuda.max_memory_allocated()/1024**3,
                 'mem/peak_reserved_gb': torch.cuda.max_memory_reserved()/1024**3,
-            }
+            } | log_dict
+
+            if (batch_idx+1) % n_steps_intermediate == 0:
+                log = log | probe(model)
 
             if (batch_idx+1) % training_model.global_grad_accum_steps==0:
                 log['train/grad_norm'] = grad_norm
@@ -225,6 +273,10 @@ def main():
                 cif_artifact = wandb.Artifact(name=f'eval_predictions-{wandb.run.id}', type='cif', metadata={'step': batch_idx})
                 cif_artifact.add_dir(step_eval_cif_dir)
                 wandb.run.log_artifact(cif_artifact)
+
+        if (batch_idx+1)%500==0 and rank==0:
+            torch.save(model.state_dict(), f'checkpoints/step_{batch_idx:04d}.pt')
+
 
 
         t0 = time.perf_counter()

@@ -8,7 +8,7 @@ from config import Config
 from diffusion.model import Model
 from feature_extraction.feature_extraction import Batch, tree_map
 from common.block_sparse_tensor import BlockSparseTensor
-from training.af3_dataset import build_af3_dataset, build_sampler, collate_batch_drop_none
+from training.af3_dataset import af3_pipeline_none_on_error, build_af3_dataset, build_sampler, collate_batch_drop_none
 from training.training_module import AF3TrainingModule
 
 def profile_module(name, module, args=None, kwargs=None, do_backward=False, device='cuda', n_cycle=1):
@@ -71,16 +71,37 @@ def main():
     config = Config()
     config.global_config.n_cycle = 1
     config.diffusion_config.denoising_steps = 1
+
+    config.global_config.c_s = 64
+    config.global_config.c_z = 32
+    config.global_config.c_m = 32
+
+    config.evoformer_config.msa_module_config.n_blocks = 1
+    config.evoformer_config.template_module_config.n_blocks = 1
+    config.evoformer_config.pairformer_config.n_blocks = 8
+    config.evoformer_config.pairformer_config.n_head_pairstack = 2
+    config.evoformer_config.msa_module_config.n_head_pairstack = 2
+    config.evoformer_config.pairformer_config.n_head_att_pair_bias = 2
+    config.diffusion_config.n_head_diffusion_transformer = 2
+
+    config.diffusion_config.n_block_diffusion_transformer = 4
+    config.diffusion_config.atom_attention_config.c_token = 32
+    config.diffusion_config.atom_attention_config.n_block_atom_transformer = 1
+
+
     model = Model(config)
 
     # train_ds = build_af3_dataset(config)
+    with open('train_ds.pkl', 'rb') as f:
+        train_ds = pickle.load(f)
+        train_ds.transform = af3_pipeline_none_on_error(config, is_inference=True)
     # sampler = build_sampler(train_ds)
-    # train_dl = torch.utils.data.DataLoader(train_ds, num_workers=15, batch_size=config.training_config.micro_batch_size, sampler=sampler, collate_fn=lambda x: collate_batch_drop_none(x, config))
+    train_dl = torch.utils.data.DataLoader(train_ds, num_workers=4, batch_size=config.training_config.micro_batch_size, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
-    # batch_with_labels = next(iter(train_dl))
+    batch_with_labels = next(iter(train_dl))
 
-    # with open('test_batch.pkl', 'wb') as f:
-    #     pickle.dump(batch_with_labels, f)
+    with open('test_batch.pkl', 'wb') as f:
+        pickle.dump(batch_with_labels, f)
 
     with open('test_batch.pkl', 'rb') as f:
         batch_with_labels = pickle.load(f)

@@ -34,6 +34,42 @@ def collate_batch_drop_none(batch, config: Config):
 
     return collated
 
+def build_easy_eval_dataset(config: Config, is_inference=True):
+    np.random.seed(23)
+    add_filters = ["deposition_date < '2022-01-01'"]
+    single_pn_unit_ds = build_single_pn_units_dataset(config, is_inference=is_inference, additional_filters=add_filters)
+
+    n_tokens = single_pn_unit_ds.data['n_tokens_total']
+    single_pn_unit_ds.data = single_pn_unit_ds.data[(n_tokens > 256) & (n_tokens <= 384)]
+    n_resolved_atoms = single_pn_unit_ds.data['num_resolved_atoms_in_processed_assembly']
+    n_total_atoms = single_pn_unit_ds.data['total_num_atoms_in_unprocessed_assembly']
+    single_pn_unit_ds.data = single_pn_unit_ds.data[(n_resolved_atoms / n_total_atoms) > 0.9]
+
+    cluster_id_to_size_map = get_cluster_sizes(single_pn_unit_ds.data, cluster_column='cluster')
+    single_pn_unit_ds.data['cluster_size'] = single_pn_unit_ds.data['cluster'].map(cluster_id_to_size_map)
+
+    alphas = {
+        "a_prot": 3,
+        # Choosing same as for protein,
+        # even though atomworks says peptides were oversampled in AF3
+        "a_peptide": 3,
+        "a_nuc": 3,
+        "a_ligand": 1,
+        "a_loi": 0
+    }
+
+    beta_chain = 0.5
+
+    weights_pn_units = calculate_af3_example_weights(single_pn_unit_ds.data, alphas, beta_chain)
+
+    weights_pn_units = weights_pn_units / np.sum(weights_pn_units)
+
+    pn_units_inds = np.random.choice(np.arange(weights_pn_units.shape[0]), replace=False, p=weights_pn_units, size=8)
+    single_pn_unit_ds.data = single_pn_unit_ds.data.iloc[pn_units_inds]
+
+    return single_pn_unit_ds
+
+
 
 def build_eval_dataset(config: Config, samples_per_group=8, is_inference=True):
     np.random.seed(23)
