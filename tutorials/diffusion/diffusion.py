@@ -1,6 +1,6 @@
+import numpy as np
 from torch import nn
 import torch
-import tqdm
 
 from config import Config
 from input_embedding.atom_attention import AtomAttentionDecoder, AtomAttentionEncoder
@@ -9,6 +9,7 @@ from feature_extraction.reference_features import ReferenceFeatures
 
 from common.modules import Transition, DiffusionTransformer
 import common.utils as utils
+from common.utils import activation_checkpointing
 
 
 class DiffusionModule(nn.Module):
@@ -38,20 +39,20 @@ class DiffusionModule(nn.Module):
 
         self.sigma_data = sigma_data
 
-    def forward(self, x_noisy, t_hat, s_inputs, s_trunk, z_trunk, rel_enc, batch: Batch):
+    def forward(self, x_noisy, t_hat, s_input, s_trunk, z_trunk, rel_feat, batch: Batch):
         # x_noisy has shape (**batch_shape, N_blocks, 32, 3)
         # t_hat has shape (**batch_shape, )
 
         reference_features = batch.reference_features
         token_features = batch.token_features
-        s, z = self.diffusion_conditioning(t_hat, s_inputs, s_trunk, z_trunk, rel_enc)
+        s, z = self.diffusion_conditioning(t_hat, s_input, s_trunk, z_trunk, rel_feat)
         r=x_noisy / torch.sqrt(t_hat**2+self.sigma_data**2)[..., None, None]
 
 
         a, (q_skip, c_skip, p_skip) = self.atom_att_enc(reference_features, r=r, s_trunk=s_trunk, z=z)
 
 
-        a += self.linear_s(self.layer_norm_s(s))
+        a = a + self.linear_s(self.layer_norm_s(s))
         a = self.diffusion_transformer(a, s, z, token_features.block_mask)
 
         a = self.layer_norm_a(a)
@@ -88,6 +89,8 @@ class DiffusionConditioning(nn.Module):
         self.fourier_w = nn.Parameter(torch.randn((c_fourier,)), requires_grad=False)
         self.fourier_b = nn.Parameter(torch.randn((c_fourier,)), requires_grad=False)
 
+        self.apply_af3_identical_layernorm = False
+
     def fourier_embedding(self, t_hat):
         # t_hat has shape (**batch_shape,)
         # out should have shape (**batch_shape, 1, c_fourier)
@@ -97,22 +100,26 @@ class DiffusionConditioning(nn.Module):
         x = c_noise * self.fourier_w + self.fourier_b
         return torch.cos(2 * torch.pi * x)
 
-    def forward(self, t_hat, s_inputs, s_trunk, z_trunk, rel_feat):
+    @activation_checkpointing
+    def forward(self, t_hat, s_input, s_trunk, z_trunk, rel_feat):
         z = torch.cat((z_trunk, rel_feat), dim=-1)
         z = self.linear_z(self.layer_norm_z(z))
         for block in self.z_transition:
-            z += block(z)
+            z = z + block(z, activation_checkpointing=False)
+            # z = z + block(z)
 
-        s = torch.cat((s_trunk, s_inputs), dim=-1)
+        s = torch.cat((s_trunk, s_input), dim=-1)
         tf_mask = torch.ones(s.shape[-1], device=s.device, dtype=bool)
         tf_mask[415] = tf_mask[447] = False
-        s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
-        # s = self.linear_s(self.layer_norm_s(s))
+        if self.apply_af3_identical_layernorm:
+            s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
+        else:
+            s = self.linear_s(self.layer_norm_s(s))
         n = self.fourier_embedding(t_hat)
-        s += self.linear_fourier(self.layer_norm_fourier(n))
+        s = s + self.linear_fourier(self.layer_norm_fourier(n))
 
         for block in self.s_transition:
-            s += block(s)
+            s = s + block(s)
         
         return s, z
 
@@ -149,11 +156,16 @@ class DiffusionSampler(nn.Module):
         self.rho = diffusion_config.rho
 
         self.center_random_aug = CenterRandomAugmentation(diffusion_config.s_trans_center_randaug)
+        self.setup_gamma_schedule()
+
+    def setup_gamma_schedule(self):
+        noise_levels = self.noise_schedule(np.linspace(0, 1, self.denoising_steps+1))
+        self.gamma_schedule = [self.gamma_0 if c > self.gamma_min else 0 for c in noise_levels[1:]]
 
     def noise_schedule(self, t):
         return self.sigma_data * (self.s_max ** (1/self.rho) + t * (self.s_min**(1/self.rho) - self.s_max**(1/self.rho))) ** self.rho
 
-    def forward(self, diffusion_module, s_inputs, s_trunk, z_trunk, rel_enc, batch: Batch, noise_data=None):
+    def forward(self, diffusion_module, s_input, s_trunk, z_trunk, rel_feat, batch: Batch, noise_data=None):
         reference_features = batch.reference_features
         batch_shape = s_trunk.shape[:-2]
         device = s_trunk.device
@@ -166,7 +178,7 @@ class DiffusionSampler(nn.Module):
         else:
             x = noise_levels[0] * torch.randn(x_shape, device=device)
 
-        for i, (c_prev, c) in tqdm.tqdm(enumerate(zip(noise_levels[:-1], noise_levels[1:])), total=self.denoising_steps):
+        for i, (c_prev, c) in enumerate(zip(noise_levels[:-1], noise_levels[1:])):
 
             if noise_data is not None:
                 rand_rot = noise_data['aug_rot'][i].to(dtype=torch.float32)
@@ -176,7 +188,7 @@ class DiffusionSampler(nn.Module):
 
             x = self.center_random_aug(x, reference_features, rand_rot=rand_rot, rand_trans=rand_trans)
 
-            gamma = self.gamma_0 if c > self.gamma_min else 0
+            gamma = self.gamma_schedule[i]
             t_hat = c_prev * (gamma + 1)
 
             if noise_data is not None:
@@ -185,7 +197,7 @@ class DiffusionSampler(nn.Module):
                 noise = self.noise_scale * torch.sqrt(t_hat**2 - c_prev**2) * torch.randn(x_shape, device=device)
 
             x_noisy = x+noise
-            x_denoised = diffusion_module.forward(x_noisy, t_hat, s_inputs, s_trunk, z_trunk, rel_enc, batch)
+            x_denoised = diffusion_module.forward(x_noisy, t_hat, s_input, s_trunk, z_trunk, rel_feat, batch)
 
 
             delta = (x_noisy-x_denoised)/t_hat

@@ -108,6 +108,14 @@ class DiffusionConfig:
     s_max: float = 160.0
     rho: int = 7
 
+@dataclass
+class TrainingConfig:
+    micro_batch_size: int = 1
+    batch_size: int = 16
+
+    diffusion_micro_batch_size: int = 6
+    diffusion_batch_size = 48
+
 
 @dataclass
 class Config:
@@ -116,3 +124,4 @@ class Config:
     input_embedding_config: InputEmbeddingConfig = field(default_factory=lambda: InputEmbeddingConfig())
     evoformer_config: EvoformerConfig = field(default_factory=lambda: EvoformerConfig())
     diffusion_config: DiffusionConfig = field(default_factory=lambda: DiffusionConfig())
+    training_config: TrainingConfig = field(default_factory=lambda: TrainingConfig())

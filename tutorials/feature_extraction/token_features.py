@@ -6,10 +6,11 @@ from atomworks.constants import UNKNOWN_AA, STANDARD_RNA, UNKNOWN_RNA, STANDARD_
 from atomworks.ml.transforms.base import Transform
 from atomworks.ml.utils.token import get_token_starts
 import torch
-from torch.nn.attention.flex_attention import create_block_mask, BlockMask
+from torch.nn.attention.flex_attention import create_block_mask
 
 from common.residue_constants import AF3_TOKENS_MAP
 import common.utils as utils
+from common.block_sparse_tensor import ExtendedBlockMask
 
 Array = np.ndarray | torch.Tensor
 
@@ -59,6 +60,7 @@ class TokenFeatures:
     is_dna: Array
     is_protein: Array
     is_ligand: Array
+    block_mask: ExtendedBlockMask = None
 
 
     @property
@@ -73,8 +75,7 @@ class TokenFeatures:
             return torch.sum(self.mask, dim=-1)
         
 
-    @cached_property
-    def block_mask(self) -> BlockMask:
+    def setup_block_mask(self) -> None:
         block_mask = None
 
         """ 
@@ -82,6 +83,7 @@ class TokenFeatures:
         e.g. where self.mask is 0. For that, implement a function block_mask with signature (b, h, q, k) -> bool 
         and use it in create_block_mask to build the block mask. You an use utils.unify_batch_dimension to unify 
         the mask of shape (**batch_shape, n_tokens) to shape (batch_size, n_tokens).
+        Wrap the final block mask into an ExtendedBlockMask using ExtendedBlockMask.from_block_mask
         """
 
         mask = utils.unify_batch_dimension(self.mask, self.mask.shape[:-1])
@@ -90,10 +92,11 @@ class TokenFeatures:
         
         batch_size = mask.shape[0]
         block_mask = create_block_mask(mask_mod, batch_size, None, self.token_count, self.token_count, self.mask.device)
+        block_mask = ExtendedBlockMask.from_block_mask(block_mask)
 
         """ End of your code """
 
-        return block_mask
+        self.block_mask = block_mask
     
 
 

@@ -347,6 +347,8 @@ class TensorTrace:
         if not isinstance(target, dict):
             target = { name: target }
 
+        all_passed = True
+
         for k, v1 in value.items():
             use_mask_for_pair = use_mask if isinstance(use_mask, bool) else use_mask.get(k, True)
             if k not in target:
@@ -357,12 +359,14 @@ class TensorTrace:
                 v1 = _to_numpy(v1).astype(float)
                 v2 = _to_numpy(v2).astype(float)
             except Exception as e:
-                print(f'Error converting test value {k} to numpy: {e}')
-                return False
+                print(f'Error converting test value {k} ({name}) to numpy: {e}')
+                all_passed = False
+                continue
 
             if v1.shape != v2.shape:
-                print(f'Shape mismatch for test value {k}: {v1.shape} vs {v2.shape}')
-                return False
+                print(f'Shape mismatch for test value {k} ({name}): {v1.shape} vs {v2.shape}')
+                all_passed = False
+                continue
 
             if mask is not None and use_mask_for_pair:
                 mask = _to_numpy(mask).astype(float)
@@ -376,20 +380,12 @@ class TensorTrace:
 
             combined_max = np.minimum(da, 10*dr).max()
             if di.size > 0:
-                print(f'Comparison failed for test value {k}. Max absolute difference: {da_max:.2e}, max relative difference: {dr_max:.2e}, max combined difference: {combined_max:.2e}. First 10 differing indices: {di[:10]}')
-                return False
+                print(f'Comparison failed for test value {k} ({name}). Max absolute difference: {da_max:.2e}, max relative difference: {dr_max:.2e}, max combined difference (min(da, 10*dr)): {combined_max:.2e}. First 10 differing indices: {di[:10]}')
+                all_passed = False
+                continue
         
-        target_without_mask = {
-            k: v[0] for k, v in target.items()
-        }
-        if self.framework == 'pytorch':
-            input_device = list(value.values())[0].device
-            target_without_mask = { k: v.to(device=input_device) for k,v in target_without_mask.items()}
 
-        if len(target_without_mask) == 1:
-            target_without_mask = list(target_without_mask.values())[0]
-
-        return True
+        return all_passed
 
 
             

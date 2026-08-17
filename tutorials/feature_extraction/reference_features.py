@@ -1,9 +1,10 @@
 from dataclasses import dataclass, fields
 from functools import cached_property
+import logging
 import math
 
 import numpy as np
-from torch.nn.attention.flex_attention import create_block_mask, BlockMask
+from torch.nn.attention.flex_attention import create_block_mask
 from torch.nn import functional as F
 import rdkit
 import torch
@@ -16,6 +17,7 @@ from atomworks.ml.utils.token import get_token_starts
 from biotite.structure import AtomArray
 
 import common.utils as utils
+from common.block_sparse_tensor import ExtendedBlockMask
 
 
 Array = np.ndarray | torch.Tensor
@@ -34,6 +36,8 @@ class ReferenceFeatures:
     mask: Array # Indicates presence of an atom
     ref_space_uid: Array # Unique ID of the corresponding residue
     token_index: Array # Index of the corresponding token
+    block_mask: ExtendedBlockMask = None # For use in Evoformer (InputEmbedder)
+    block_mask_diffusion: ExtendedBlockMask = None # For use in DiffusionModule (additional num_samples dimension)
 
     @property
     def atom_count(self):
@@ -81,6 +85,18 @@ class ReferenceFeatures:
         else:
             return ref_mask
 
+    # If used with torch.compile, these properties need to be materialized outside
+    # of the computation graph (e.g. by calling reference_features.materialize() before
+    # executing the model's forward pass).
+    # Fixed size indices outside of the compiled region avoid graph breaks.
+    @cached_property
+    def token_layout_ref_mask_nonzero(self):
+        return self.token_layout_ref_mask.reshape(-1).nonzero(as_tuple=True)[0]
+
+    @cached_property
+    def mask_nonzero(self):
+        return self.mask.reshape(-1).nonzero(as_tuple=True)[0]
+
 
     def to_token_layout(self, feature):
         """
@@ -90,14 +106,20 @@ class ReferenceFeatures:
         batch_shape = self.mask.shape[:-1]
         token_count = self.atom_count // 24
         feature = torch.as_tensor(feature)
-        token_layout_ref_mask = torch.as_tensor(self.token_layout_ref_mask)
+        token_layout_ref_mask_nonzero = self.token_layout_ref_mask_nonzero
+        mask_nonzero = self.mask_nonzero
         out = None
 
         """
         TODO: Convert feature of shape (**batch_shape, n_atoms, **feat_dims) 
-        to shape (**batch_shape, n_tokens, 24, **feat_dims). With the masks we created, this is fairly simple: 
-        Construct an all-zeros output array of the target shape, then just set out = feature, 
-        using the token_layout_ref_mask on the left and the regular mask on the right.
+        to shape (**batch_shape, n_tokens, 24, **feat_dims). You have two simple options:
+        1) Using boolean masks (not compatible with torch.compile later on):
+          Construct an all-zeros output array of the target shape, then just set out = feature, 
+          using the token_layout_ref_mask on the left and the regular mask on the right.
+        2) Using mask_nonzero and token_layout_ref_mask_nonzero (compatible with torch.compile):
+          Construct an all-zeros output array of the target shape. Create flattened views of the output and 
+          the feature. Within the flattened arrays, you can just set out = feature using the corresponding
+          nonzero indices on the left and right side.
         """
 
         # Replace 'pass' with your code
@@ -145,14 +167,14 @@ class ReferenceFeatures:
         """
         batch_shape = self.element.shape[:-1]
         feature = torch.as_tensor(feature)
-        mask = torch.as_tensor(self.mask)
-        token_layout_ref_mask = torch.as_tensor(self.token_layout_ref_mask)
-
+        token_layout_ref_mask_nonzero = self.token_layout_ref_mask_nonzero
+        mask_nonzero = self.mask_nonzero
         out = None
 
         """
         TODO: Implement the conversion. You can use patch_atom_dimension to handle has_atom_dimension. 
-        Then, you can do the layout conversion just as in to_token_layout using the two boolean masks, but in reverse.
+        Then, you can do the layout conversion just as in to_token_layout but in reverse, using either 
+        the boolean masks (not compatible with torch.compile) or the nonzero indices.
         """
 
         # Replace 'pass' with your code
@@ -165,15 +187,28 @@ class ReferenceFeatures:
         else:   
             return out
 
-    @cached_property
-    def block_mask(self) -> BlockMask:
+    def materialize(self) -> None:
+        """
+        Materializes the three cached properties of this instance. For use of torch.compile, these properties
+        need to be instantiated outside of the computational graph (e.g. by calling reference_features.materialize()
+        before execution of the model's forward pass).
+        """
+        _ = self.token_layout_ref_mask_nonzero
+        _ = self.mask_nonzero
+        _ = self.token_layout_ref_mask
+
+
+    def setup_block_mask(self, num_diffusion_samples=None) -> None:
         """
         Creates a local attention block mask for use with flex_attention. Atoms are split into overlapping blocks 
         of size 128, and attend only other atoms within their block during atom attention. Concretely, 
         the block centers for the block rows are chosen as range(16, n_atoms, step=32), and the right and left bounds 
-        of the block are chosen as center +/- 64. If these boundaries exceed range(n_atoms), they are shifted 
-        so that they fit. The blocks have height 32.
+        of the block are chosen as center +/- 64. If these boundaries exceed range(0, n_atoms), they are shifted 
+        left or right so that they fit. The blocks have height 32.
         The block_mask is cached, so that it isn't recomputed on reevaluation.
+        For the evoformer, a blockmask corresponding to (**batch_shape, n_atoms, n_atoms) is constructed.
+        For diffusion, a blockmask corresponding to (num_diffusion_samples, **batch_shape, n_atoms, n_atoms) is 
+        constructed, to allow sampling multiple diffusion samples in one forward pass.
         """
 
         batch_shape = self.mask.shape[:-1]
@@ -183,7 +218,10 @@ class ReferenceFeatures:
         # unpadded_atom_count has shape (batch_size,)
         unpadded_atom_count = utils.unify_batch_dimension(self.unpadded_atom_count, batch_shape) 
 
+        num_diffusion_samples = num_diffusion_samples or 1
+
         block_mask = None
+        block_mask_diffusion = None
 
         """
         TODO: This is not part of Chapter 1! Implement this in Chapter 2, Input Embedding.  
@@ -201,14 +239,21 @@ class ReferenceFeatures:
         - Add the shift, and detach the bounds and unpadded_atom_count using .detach() so that the gradients 
             don't backprop through them
         - build the mask_mod, by checking the boundary conditions and whether q is smaller than the unpadded atom count
-        - Use create_block_mask for to create the actual block mask.
+        - Use create_block_mask to create the actual block mask.
+        - build mask_mod_diffusion. It should be identical to mask_mod, but use (b mod batch_size), so
+          that the mask is independent of the diffusion sample index.
+        - Use create_block_mask to create the actual block mask for the diffusion stage. Its batchsize should
+          be num_diffusion_samples * batch_size. 
+        - Wrap each block mask with ExtendedBlockMask.from_block_mask
         """
 
         # Replace 'pass' with your code
         pass
 
         """ End of your code """
-        return block_mask
+
+        self.block_mask = block_mask
+        self.block_mask_diffusion = block_mask_diffusion
 
 
 class CalculateReferenceFeatures(Transform):
@@ -254,6 +299,9 @@ class CalculateReferenceFeatures(Transform):
               between residue start and residue end. Search for the atom_array.atom_name at the indices 
               within the conformer.atom_name, and plug the conformer.coords of that index into the output positions. 
               If you don't find a matching atom name, print a warning and skip that atom.
+          Note for training: To avoid propagation of errors from the conformer generation into the dataloader,
+          you can wrap the whole inner part of the for-loop into a try-except block. In doing so, residues 
+          that raised an exception during conformer generation will just have their positions set to 0.
         """
 
         # Replace 'pass' with your code

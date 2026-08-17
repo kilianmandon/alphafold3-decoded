@@ -82,6 +82,7 @@ class TokenFeatures:
         e.g. where self.mask is 0. For that, implement a function block_mask with signature (b, h, q, k) -> bool 
         and use it in create_block_mask to build the block mask. You an use utils.unify_batch_dimension to unify 
         the mask of shape (**batch_shape, n_tokens) to shape (batch_size, n_tokens).
+        Wrap the final block mask into an ExtendedBlockMask using ExtendedBlockMask.from_block_mask
         """
 
         mask = utils.unify_batch_dimension(self.mask, self.mask.shape[:-1])

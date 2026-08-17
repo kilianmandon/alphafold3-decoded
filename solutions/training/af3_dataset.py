@@ -30,7 +30,7 @@ def collate_batch_drop_none(batch, config: Config):
         batch = [b for b in batch if b is not None]
         if not batch:
             return None
-    collated = collate_batch(batch)
+    collated = collate_batch(batch, unconvertible_entries_policy='keep')
 
     return collated
 

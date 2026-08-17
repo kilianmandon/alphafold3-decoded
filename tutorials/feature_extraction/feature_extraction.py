@@ -36,25 +36,44 @@ class Batch:
     reference_features: ReferenceFeatures
     bond_matrix: Array
 
+    def to(self, device, *args, **kwargs):
+        return tree_map(lambda x: x.to(device, *args, **kwargs), self, skip_unconvertible_entries=True)
 
-def tree_map(fn, x):
+
+def tree_map(fn, x, skip_unconvertible_entries=False):
     """
     Recursively applies a function to all elements in a nested structure of dataclasses, dicts, and tensors / arrays.
 
     Args:
         fn: A function that takes a tensor or array and returns a tensor or array.
         x: The input data, which can be a tensor, array, dataclass, or nested structure of dataclasses.
+        skip_unconvertible_entries: If True, entries that are no mappable datatype (e.g. not tensors, arrays,
+            dataclasses, dicts, lists, tuple, or None) do not raise an exception and are simply returned as is.
     """
     if isinstance(x, (torch.Tensor, np.ndarray)):
         return fn(x)
 
     if is_dataclass(x):
-        field_dict = {f.name: tree_map(fn, getattr(x, f.name)) for f in fields(x)}
+        field_dict = {f.name: tree_map(fn, getattr(x, f.name), skip_unconvertible_entries) for f in fields(x)}
         return type(x)(**field_dict)
 
     if isinstance(x, dict):
-        field_dict = {k: tree_map(fn, v) for k, v in x.items()}
+        field_dict = {k: tree_map(fn, v, skip_unconvertible_entries) for k, v in x.items()}
         return field_dict
+
+    if isinstance(x, list):
+        field_list = [tree_map(fn, v, skip_unconvertible_entries) for v in x]
+        return field_list
+
+    if isinstance(x, tuple):
+        field_list = tuple(tree_map(fn, v, skip_unconvertible_entries) for v in x)
+        return field_list
+
+    if x is None:
+        return None
+
+    if skip_unconvertible_entries:
+        return x
 
     raise ValueError(f"Cannot apply tree_map to object of type {type(x)}")
 
@@ -62,7 +81,7 @@ def tree_map(fn, x):
 # different name for drop_unconvertibles:
 def collate_batch(
     batch: list[dataclass] | list[torch.Tensor] | list[dict],
-    drop_unconvertible_entries=False,
+    unconvertible_entries_policy='error'
 ) -> dataclass:
     """
     Recursively collates a list of nested structures of dataclasses, dicts, and tensors into a single nestex structure
@@ -71,8 +90,16 @@ def collate_batch(
 
     Args:
         batch: List of objects to collate.
+        unconvertible_entries_policy: How to handle batch data of an uncollatable type 
+            (neither of tensor, array, dataclass, dict, or None). Setting can be either "error", "drop", 
+            or "keep". If set to "error", an exception will be raised. If set to "drop", the method will 
+            set the value to None. If set to "keep", the value will not be collated but kept as the list.
     """
+
     first = batch[0]
+    assert unconvertible_entries_policy in ['error', 'drop', 'keep'], 'Unconvertible entries policy must be one of "error", "drop", or "keep".'
+
+
     if isinstance(first, torch.Tensor):
         max_shape = np.array([b.shape for b in batch]).max(axis=0).tolist()
         padded_batch = [utils.pad_to_shape(b, max_shape) for b in batch]
@@ -87,7 +114,7 @@ def collate_batch(
         field_dict = {
             f.name: collate_batch(
                 [getattr(b, f.name) for b in batch],
-                drop_unconvertible_entries=drop_unconvertible_entries,
+                unconvertible_entries_policy=unconvertible_entries_policy
             )
             for f in fields(first)
         }
@@ -97,16 +124,21 @@ def collate_batch(
         field_dict = {
             k: collate_batch(
                 [b[k] for b in batch],
-                drop_unconvertible_entries=drop_unconvertible_entries,
+                unconvertible_entries_policy=unconvertible_entries_policy
             )
             for k in first.keys()
         }
         return field_dict
 
-    if not drop_unconvertible_entries:
-        raise ValueError(f"Cannot collate batch of type {type(first)}")
-    else:
+    if first is None:
         return None
+
+    if unconvertible_entries_policy=='error':
+        raise ValueError(f"Cannot collate batch of type {type(first)}")
+    elif unconvertible_entries_policy=='drop':
+        return None
+    else:
+        return batch
 
 
 class HotfixDropSaccharideO1(Transform):

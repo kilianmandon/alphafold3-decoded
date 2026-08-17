@@ -284,7 +284,7 @@ for i, test_data in enumerate(test_data_individual):
 
 if success: print('Individual to_atom and to_token tests passed.')
 # Batch tests
-test_data_batch = collate_batch(test_data_individual, drop_unconvertible_entries=True)
+test_data_batch = collate_batch(test_data_individual, unconvertible_entries_policy='drop')
 reference_features_batch: ReferenceFeatures = test_data_batch['reference_features']
 
 to_atom_batch = reference_features_batch.to_atom_layout(collate_batch(test_token_layout), has_atom_dimension=True)

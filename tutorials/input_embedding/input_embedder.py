@@ -66,8 +66,6 @@ class InputEmbedder(nn.Module):
 
     def forward(self, batch):
         # Implements Line 1 to Line 5 from Algorithm 1
-        if torch.cuda.is_available():
-            torch.cuda.nvtx.range_push('InputEmbedder')
         target_feat = batch.msa_features.target_feat
         token_act, _ = self.atom_cross_att(batch.reference_features)
         s_input = torch.cat((target_feat, token_act), dim=-1)
@@ -78,9 +76,7 @@ class InputEmbedder(nn.Module):
         z_init = a[..., None, :] + b[..., None, :, :]
 
         rel_enc, rel_feat = self.relative_encoding(batch)
-        z_init += rel_enc
-        z_init += self.bond_embedding(batch.bond_matrix)
-        if torch.cuda.is_available():
-            torch.cuda.nvtx.range_pop()
+        z_init = z_init + rel_enc
+        z_init = z_init + self.bond_embedding(batch.bond_matrix)
 
         return s_input, s_init, z_init, rel_feat

@@ -2,8 +2,9 @@ import torch
 from torch import nn
 from config import AtomAttentionConfig
 from feature_extraction.reference_features import ReferenceFeatures
-from common.block_sparse_tensor import BlockSparseTensor
+from common.block_sparse_tensor import BlockSparseTensor, ExtendedBlockMask
 from common.modules import DiffusionTransformer
+from common.utils import activation_checkpointing
 
 import common.utils as utils
 
@@ -45,7 +46,7 @@ class AtomAttentionEncoder(nn.Module):
             nn.Linear(c_atompair, c_atompair, bias=False)
         )
 
-        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atompair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True)
+        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atompair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True, bst_bias=True)
         self.project_atom_features = nn.Linear(c_atom, config.c_token, bias=False)
 
         self.use_trunk = use_trunk
@@ -57,11 +58,16 @@ class AtomAttentionEncoder(nn.Module):
             self.trunk_linear_r = nn.Linear(3, c_atom, bias=False)
 
 
+    @activation_checkpointing
     def forward(self, reference_features: ReferenceFeatures, r=None, s_trunk=None, z=None):
         ref_space_uid = reference_features.ref_space_uid
         ref_pos = reference_features.positions
-        block_mask = reference_features.block_mask
         batch_shape = ref_space_uid.shape[:-1]
+
+        if self.use_trunk:
+            block_mask = reference_features.block_mask_diffusion
+        else:
+            block_mask = reference_features.block_mask
 
         single_cond = self.per_atom_cond(reference_features)
 
@@ -78,28 +84,14 @@ class AtomAttentionEncoder(nn.Module):
         offsets = ref_pos_left - ref_pos_right
 
 
-        pair_act = self.embed_pair_offsets(offsets) * offsets_valid
+        pair_act = offsets.map(self.embed_pair_offsets) * offsets_valid
 
-        sq_dists = torch.sum(offsets**2, dim=-1, keepdim=True)
+        sq_dists = (offsets**2).map(lambda x: torch.sum(x, dim=-1, keepdim=True))
 
-        pair_act += self.embed_pair_distances(1/(1+sq_dists)) * offsets_valid
+        pair_act = pair_act + (1/(1+sq_dists)).map(self.embed_pair_distances) * offsets_valid
 
         if self.use_trunk:
-            s_trunk = reference_features.to_atom_layout(s_trunk, has_atom_dimension=False)
-
-            batch_idx, p_idx, l_idx = pair_act.inverse_lookup_indices
-            token_indices = utils.unify_batch_dimension(reference_features.token_index, batch_shape)
-            z = utils.unify_batch_dimension(z, batch_shape)
-            i_idx = token_indices[batch_idx, p_idx]
-            j_idx = token_indices[batch_idx, l_idx]
-            z = pair_act._wrap(z[batch_idx, i_idx, j_idx])
-
-            single_cond += self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
-            pair_act += self.trunk_linear_z(self.trunk_layer_norm_z(z))
-
-            # Note: The paper uses the old, non-trunk-updated value
-            # for queries_single_cond here
-            single_act = single_cond + self.trunk_linear_r(r)
+            single_act, single_cond, pair_act = self.trunk_update(reference_features, pair_act, single_cond, r, s_trunk, z)
 
 
         row_act = self.single_to_pair_row(torch.relu(single_cond))
@@ -107,10 +99,10 @@ class AtomAttentionEncoder(nn.Module):
         col_act = self.single_to_pair_col(torch.relu(single_cond))
         col_act = BlockSparseTensor.from_broadcast(col_act[..., None, :, :], block_mask, batch_shape)
 
-        pair_act += row_act + col_act
-        pair_act += self.embed_pair_mask(offsets_valid)
+        pair_act = pair_act + row_act + col_act
+        pair_act = pair_act + offsets_valid.map(self.embed_pair_mask)
 
-        pair_act += self.pair_mlp(pair_act)
+        pair_act = pair_act + pair_act.map(self.pair_mlp)
 
         single_act = self.atom_transformer(
             single_act,
@@ -140,14 +132,37 @@ class AtomAttentionEncoder(nn.Module):
         atom_names_1h = atom_names_1h.reshape(atom_names_1h.shape[:-2] + (-1,))
 
         act = self.embed_ref_pos(reference_features.positions)
-        act += self.embed_ref_mask(mask)
-        act += self.embed_ref_element(elements_1h)
-        act += self.embed_ref_charge(torch.arcsinh(charge))
+        act = act + self.embed_ref_mask(mask)
+        act = act + self.embed_ref_element(elements_1h)
+        act = act + self.embed_ref_charge(torch.arcsinh(charge))
 
-        act += self.embed_ref_atom_name(atom_names_1h)
+        act = act + self.embed_ref_atom_name(atom_names_1h)
         act *= mask
 
         return act
+
+    def trunk_update(self, reference_features, pair_act, single_cond, r, s_trunk, z):
+        batch_shape = s_trunk.shape[:-2]
+
+        s_trunk = reference_features.to_atom_layout(s_trunk, has_atom_dimension=False)
+
+        batch_idx, p_idx, l_idx = pair_act.inverse_lookup_indices
+        token_indices = utils.unify_batch_dimension(reference_features.token_index, batch_shape)
+        z = utils.unify_batch_dimension(z, batch_shape)
+        i_idx = token_indices[batch_idx, p_idx]
+        j_idx = token_indices[batch_idx, l_idx]
+        # Processing (128 -> 16 channels) before indexing, to lower memory usage
+        z = self.trunk_linear_z(self.trunk_layer_norm_z(z))
+        z = pair_act._wrap(z[batch_idx, i_idx, j_idx])
+
+        single_cond = single_cond + self.trunk_linear_s(self.trunk_layer_norm_s(s_trunk))
+        pair_act = pair_act + z
+
+        # Note: The paper uses the old, non-trunk-updated value
+        # for queries_single_cond here
+        single_act = single_cond + self.trunk_linear_r(r)
+
+        return single_act, single_cond, pair_act
 
 
 class AtomAttentionDecoder(nn.Module):
@@ -157,14 +172,16 @@ class AtomAttentionDecoder(nn.Module):
         c_atom = config.c_atom
         c_atomapair = config.c_atompair
         self.linear_a = nn.Linear(config.c_token, c_atom, bias=False)
-        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atomapair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True)
+        self.atom_transformer = DiffusionTransformer(c_a=c_atom, c_z=c_atomapair, n_head=config.n_head_atom_transformer, c_s=c_atom, n_blocks=config.n_block_atom_transformer, split_ada_qk=True, bst_bias=True)
         self.layer_norm_q = nn.LayerNorm(c_atom, bias=False)
         self.linear_out = nn.Linear(c_atom, 3, bias=False)
 
     def forward(self, a, q_skip, c_skip, p_skip, reference_features: ReferenceFeatures):
+        block_mask = reference_features.block_mask_diffusion
+
         a = self.linear_a(a)
         a_q = reference_features.to_atom_layout(a, has_atom_dimension = False)
         q = a_q + q_skip
-        q = self.atom_transformer(q, c_skip, p_skip, reference_features.block_mask)
+        q = self.atom_transformer(q, c_skip, p_skip, block_mask)
         r = self.linear_out(self.layer_norm_q(q))
         return r

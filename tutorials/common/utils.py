@@ -1,3 +1,4 @@
+import functools
 import json
 import math
 import numpy as np
@@ -7,6 +8,8 @@ from common.block_sparse_tensor import BlockSparseTensor
 from atomworks.enums import ChainType
 from atomworks.io.parser import parse_atom_array
 from atomworks.io.tools.inference import components_to_atom_array
+
+from torch.utils.checkpoint import create_selective_checkpoint_contexts, CheckpointPolicy
 
 
 Array = np.ndarray | torch.Tensor
@@ -87,7 +90,11 @@ def round_to_bucket(v: int) -> int:
     Returns:
         int: The smallest bucket size that fits the tokens.
     """
-    buckets = np.array([256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072,
+    # buckets = np.array([256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072,
+    #                     3584, 4096, 4608, 5120])
+
+    # Added 384 for training
+    buckets = np.array([256, 384, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072,
                         3584, 4096, 4608, 5120])
 
     selected_bucket = None
@@ -156,6 +163,53 @@ def unify_batch_dimension(x: torch.Tensor | BlockSparseTensor, batch_shape):
         return x[None, ...]
     else:
         return x.flatten(end_dim=len(batch_shape)-1)
+
+
+def static_one_hot(x: torch.Tensor, num_classes: int):
+    return (x[..., None] == torch.arange(num_classes, dtype=x.dtype, device=x.device)).float()
+
+is_checkpointing = False
+
+def activation_checkpointing(f=None, *, checkpoint_by_default=True):
+    # aten = torch.ops.aten
+    # compute_intensive_ops = [  
+    #     aten.mm.default,
+    #     aten.convolution,
+    #     aten.convolution_backward,
+    #     aten.bmm,
+    #     aten.addmm,
+    #     aten._scaled_dot_product_flash_attention,
+    #     aten._scaled_dot_product_efficient_attention,
+    #     aten._flash_attention_forward,
+    #     aten._efficient_attention_forward,
+    #     aten.upsample_bilinear2d,
+    #     aten._scaled_mm
+    # ] 
+    compute_intensive_ops = []
+    def policy_fn(ctx, op, *args, **kwargs):
+        # if 'flex' in str(op):
+        #     print(op)
+        if op in compute_intensive_ops:
+            return CheckpointPolicy.MUST_SAVE
+        else:
+            return CheckpointPolicy.PREFER_RECOMPUTE
+    context_fn = functools.partial(create_selective_checkpoint_contexts, policy_fn)
+    def decorator(f):
+        def helper(*args, **kwargs):
+            global is_checkpointing
+            do_checkpoint = kwargs.pop('activation_checkpointing', checkpoint_by_default) and torch.is_grad_enabled()
+            if do_checkpoint and not is_checkpointing:
+                # is_checkpointing = True
+                res = torch.utils.checkpoint.checkpoint(f, *args, use_reentrant=False, **kwargs)
+                # is_checkpointing = False
+                return res
+            else:
+                return f(*args, **kwargs)
+        return helper
+    if f is not None:
+        return decorator(f)
+    else:
+        return decorator
 
 
 def load_alphafold_input(path):
