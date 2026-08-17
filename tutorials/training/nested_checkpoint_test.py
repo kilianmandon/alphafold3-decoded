@@ -30,7 +30,7 @@ class WrapperWrapperModule(nn.Module):
         return x
 
 def main():
-    with torch.autograd.detect_anomaly(), memory_snapshot('debug_outer_checkpointing', share=True, share_code='kilisaf3_secret', log_shapes=True):
+    with torch.autograd.detect_anomaly(), memory_snapshot('debug_outer_checkpointing', share=True, log_shapes=True):
         x = torch.randn((100_000, 32), device='cuda')
         mod = WrapperWrapperModule().to(device='cuda')
         out = mod(x)

@@ -91,11 +91,21 @@ class ReferenceFeatures:
     # Fixed size indices outside of the compiled region avoid graph breaks.
     @cached_property
     def token_layout_ref_mask_nonzero(self):
-        return self.token_layout_ref_mask.reshape(-1).nonzero(as_tuple=True)[0]
+        token_layout_ref_mask = torch.as_tensor(self.token_layout_ref_mask)
+        nonzeros = token_layout_ref_mask.reshape(-1).nonzero(as_tuple=True)[0]
+        if isinstance(self.mask, np.ndarray):
+            return nonzeros.numpy()
+        else:
+            return nonzeros
 
     @cached_property
     def mask_nonzero(self):
-        return self.mask.reshape(-1).nonzero(as_tuple=True)[0]
+        mask = torch.as_tensor(self.mask)
+        nonzeros = mask.reshape(-1).nonzero(as_tuple=True)[0]
+        if isinstance(self.mask, np.ndarray):
+            return nonzeros.numpy()
+        else:
+            return nonzeros
 
 
     def to_token_layout(self, feature):

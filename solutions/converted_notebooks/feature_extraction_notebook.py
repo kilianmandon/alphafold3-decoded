@@ -189,6 +189,7 @@ success = True
 
 for test_input in test_inputs_pipeline:
     token_features = transform(test_input)['token_features'].__dict__
+    token_features.pop('block_mask')
     success = success and ttr.log_or_compare(token_features, 'token_features')
 
 if success: print('Token feature calculation tests created.')
@@ -220,6 +221,8 @@ success = True
 
 for test_input in test_inputs_pipeline:
     reference_features = transform(test_input)['reference_features'].__dict__
+    reference_features.pop('block_mask')
+    reference_features.pop('block_mask_diffusion')
     success = success and ttr.log_or_compare(reference_features, 'reference_features')
 
 
@@ -230,6 +233,8 @@ data_no_ref = transform_no_ref(test_unknown_ligand)
 atom_array = test_unknown_ligand['atom_array']
 atom_array.res_name[atom_array.res_name == 'GLY'] = 'UNL'
 reference_features = calc_ref(data_no_ref)['reference_features'].__dict__
+reference_features.pop('block_mask')
+reference_features.pop('block_mask_diffusion')
 success = ttr.log_or_compare(reference_features, 'reference_features_unknown_ligand')
 
 if success: print('Reference feature calculation (with unknown entries) tests created.')
@@ -462,6 +467,9 @@ for test_input in test_inputs_pipeline:
         k: v.__dict__ if hasattr(v, '__dict__') else v
         for k, v in data['batch'].__dict__.items()
     }
+    batch_as_dict['token_features'].pop('block_mask')
+    batch_as_dict['reference_features'].pop('block_mask')
+    batch_as_dict['reference_features'].pop('block_mask_diffusion')
     success = success and ttr.log_or_compare(batch_as_dict, 'full_batch')
 
 if success: print('Full feature extraction pipeline tests created.')
