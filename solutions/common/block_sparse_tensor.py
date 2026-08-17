@@ -60,7 +60,6 @@ class ExtendedBlockMask:
             torch.cumsum(kv_num_blocks_no_heads.flatten()[:-1], dim=0),
             (1, 0)
         )
-        bq_lookup = torch.zeros((batch_size, n_blocks, 1), dtype=int, device=device)
         bq_lookup = bq_lookup.reshape(batch_size, n_blocks, 1)
 
         k_impact = torch.argsort(block_mask.kv_indices[:, 0, :, :], dim=-1)
@@ -120,9 +119,6 @@ class BlockSparseTensor:
     def __getitem__(self, index):
         b, q, k, c = index
         W = self.block_size
-        zero = torch.tensor(0, device=W.device, dtype=int)
-        # return self.lookup_table[zero, zero, zero]
-        # return self.physical[zero, q%W, k%W, c]
         return self.physical[self.lookup_table[b, q//W, k//W], q%W, k%W, c]
 
     def _unwrap(self, other):

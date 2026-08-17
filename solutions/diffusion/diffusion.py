@@ -1,7 +1,6 @@
 import numpy as np
 from torch import nn
 import torch
-import tqdm
 
 from config import Config
 from input_embedding.atom_attention import AtomAttentionDecoder, AtomAttentionEncoder
@@ -90,6 +89,8 @@ class DiffusionConditioning(nn.Module):
         self.fourier_w = nn.Parameter(torch.randn((c_fourier,)), requires_grad=False)
         self.fourier_b = nn.Parameter(torch.randn((c_fourier,)), requires_grad=False)
 
+        self.apply_af3_identical_layernorm = False
+
     def fourier_embedding(self, t_hat):
         # t_hat has shape (**batch_shape,)
         # out should have shape (**batch_shape, 1, c_fourier)
@@ -110,8 +111,10 @@ class DiffusionConditioning(nn.Module):
         s = torch.cat((s_trunk, s_input), dim=-1)
         tf_mask = torch.ones(s.shape[-1], device=s.device, dtype=bool)
         tf_mask[415] = tf_mask[447] = False
-        # s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
-        s = self.linear_s(self.layer_norm_s(s))
+        if self.apply_af3_identical_layernorm:
+            s = self.linear_s(apply_layernorm_masked(s, self.layer_norm_s, tf_mask))
+        else:
+            s = self.linear_s(self.layer_norm_s(s))
         n = self.fourier_embedding(t_hat)
         s = s + self.linear_fourier(self.layer_norm_fourier(n))
 

@@ -157,11 +157,11 @@ def main():
 
     # sampler = build_sampler(train_ds)
     avail_workers = len(os.sched_getaffinity(0))
-    num_workers = 3
+    num_workers = 6
     print(f'[rank{rank}]: {num_workers}/{avail_workers} workers used')
     train_ds = torch.utils.data.Subset(train_ds, indices=range(rank, len(train_ds), world_size))
 
-    n_steps = 5002
+    n_steps = 2002
     n_steps_eval = 50
     n_steps_intermediate = 20
     
@@ -176,7 +176,7 @@ def main():
         def __getitem__(self, key):
             return self.base_dataset[key % len(self.base_dataset)]
 
-    # train_ds = EpochlessDataset(train_ds, n_steps)
+    train_ds = EpochlessDataset(train_ds, n_steps)
     train_dl = torch.utils.data.DataLoader(train_ds, num_workers=num_workers, batch_size=config.training_config.micro_batch_size, collate_fn=lambda x: collate_batch_drop_none(x, config))
 
     eval_ds = torch.utils.data.Subset(eval_ds, indices=range(rank, len(eval_ds), world_size))
@@ -275,6 +275,7 @@ def main():
                 wandb.run.log_artifact(cif_artifact)
 
         if (batch_idx+1)%500==0 and rank==0:
+            Path('checkpoints').mkdir(exist_ok=True)
             torch.save(model.state_dict(), f'checkpoints/step_{batch_idx:04d}.pt')
 
 

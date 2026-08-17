@@ -48,6 +48,7 @@ def main(test_name):
     config.diffusion_config.denoising_steps = 4
 
     model = Model(config)
+    model.diffusion_module.diffusion_conditioning.apply_af3_identical_layernorm = True
     params = torch.load('data/params/af3_pytorch.pt')
     model.load_state_dict(params)
 
@@ -112,13 +113,17 @@ def main(test_name):
         device = torch.device('cpu')
 
     batch: Batch = tree_map(lambda x: x.to(device=device), batch)
+    batch.reference_features.setup_block_mask(num_diffusion_samples=1)
+    batch.token_features.setup_block_mask()
 
     model = model.to(device=device)
     model.eval()
 
+    print('Running evoformer tests...')
     s_input, s_trunk, z_trunk, rel_feat = model.evoformer(batch)
     ttr.compare(s_trunk, 'evoformer/single')
     ttr.compare(z_trunk, 'evoformer/pair')
+    print('Evoformer tests complete.')
 
 
     def t2q(tensor):
@@ -143,6 +148,14 @@ def main(test_name):
         'aug_trans': ttr.load_all('diffusion/rand_aug/trans', processing=[indexing(0), to_device, to_float]),
     }
 
+    ttr.compare({
+        's_input': s_input,
+        's_trunk': s_trunk, 
+        'z_trunk': z_trunk,
+        'rel_feat': rel_feat,
+    }, 'quick_test')
+
+    print('Running diffusion tests...')
     with ttr.Chapter('diffusion'):
         diff_x = model.diffusion_sampler(model.diffusion_module,
                                 s_input, s_trunk, z_trunk, rel_feat, 
@@ -151,6 +164,7 @@ def main(test_name):
     diff_x = batch.reference_features.to_token_layout(diff_x)
 
     ttr.compare(diff_x, 'diffusion/final_positions', processing=[indexing(0), hotfix_roll_inv])
+    print('Diffusion tests complete.')
 
 def batch_test():
     test1 = 'lysozyme'
@@ -298,10 +312,10 @@ def inference():
 
 
 if __name__=='__main__':
-    with torch.no_grad():
-        inference()
-    # test_name = 'lysozyme'
-    # with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
-    #     main(test_name)
+    # with torch.no_grad():
+    #     inference()
+    test_name = 'lysozyme'
+    with torch.no_grad(), ttr.TensorTrace(f'/workspace/test/alphafold3-decoded/data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
+        main(test_name)
     # with torch.no_grad():
     #     batch_test()
