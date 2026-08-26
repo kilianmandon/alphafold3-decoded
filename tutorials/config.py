@@ -1,14 +1,15 @@
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
+import yaml
 
-@dataclass
-class GlobalConfig:
+class GlobalConfig(BaseModel):
     # Single representation
     c_s: int = 384
     # MSA representation
     c_m: int = 64
     # Pair representation
     c_z: int = 128
-    # target feature embedding, aka s_input
+    # initial single feature, aka s_input,
+    # concatenation of target_feat and atom-feature embeddings
     c_s_input: int = 449
     # Number of recycling iterations
     n_cycle: int = 11
@@ -17,13 +18,11 @@ class GlobalConfig:
     # MSA feature
     msa_feat_dim: int = 34
 
-@dataclass
-class FeaturizationConfig:
+class FeaturizationConfig(BaseModel):
     max_msa_sequences: int = 16384
     msa_trunc_count: int = 1024
 
-@dataclass
-class AtomAttentionConfig:
+class AtomAttentionConfig(BaseModel):
     atom_element_dim: int = 128
     atom_chars_dim: int = 64
     c_atom: int = 128
@@ -32,15 +31,13 @@ class AtomAttentionConfig:
     n_head_atom_transformer: int = 4
     n_block_atom_transformer: int = 3
 
-@dataclass
-class InputEmbeddingConfig:
-    atom_attention_config: AtomAttentionConfig = field(default_factory=lambda: AtomAttentionConfig(c_token=384))
+class InputEmbeddingConfig(BaseModel):
+    atom_attention_config: AtomAttentionConfig = Field(default_factory=lambda: AtomAttentionConfig(c_token=384))
     r_max: int = 32
     s_max: int = 2
 
 
-@dataclass
-class MSAModuleConfig:
+class MSAModuleConfig(BaseModel):
     n_blocks: int = 4
     n_transition: int = 4
     p_dropout: float = 0.15
@@ -51,8 +48,7 @@ class MSAModuleConfig:
     c_msa_ave: int = 8
     n_head_msa_ave: int =  8
 
-@dataclass
-class TemplateModuleConfig:
+class TemplateModuleConfig(BaseModel):
     c_in: int = 106
     c: int = 64
     n_blocks: int = 2
@@ -62,8 +58,7 @@ class TemplateModuleConfig:
     p_dropout_pairstack: float = 0.25
 
 
-@dataclass
-class PairformerConfig:
+class PairformerConfig(BaseModel):
     n_blocks: int = 48
     n_transition: int = 4
     n_head_att_pair_bias: int = 16
@@ -71,23 +66,21 @@ class PairformerConfig:
     n_transition_pairstack: int = 4
     p_dropout_pairstack: float = 0.25
 
-@dataclass
-class EvoformerConfig:
-    msa_module_config: MSAModuleConfig = field(default_factory=lambda: MSAModuleConfig())
-    template_module_config: TemplateModuleConfig = field(default_factory=lambda: TemplateModuleConfig())
-    pairformer_config: PairformerConfig = field(default_factory=lambda: PairformerConfig())
+class EvoformerConfig(BaseModel):
+    msa_module_config: MSAModuleConfig = Field(default_factory=lambda: MSAModuleConfig())
+    template_module_config: TemplateModuleConfig = Field(default_factory=lambda: TemplateModuleConfig())
+    pairformer_config: PairformerConfig = Field(default_factory=lambda: PairformerConfig())
 
 
 
-@dataclass
-class DiffusionConfig:
+class DiffusionConfig(BaseModel):
     sigma_data: float = 16.0
 
     # Augmentation
     s_trans_center_randaug: float = 1.0
 
     # Atom Attention Encoder
-    atom_attention_config: AtomAttentionConfig = field(default_factory=lambda: AtomAttentionConfig(c_token=768))
+    atom_attention_config: AtomAttentionConfig = Field(default_factory=lambda: AtomAttentionConfig(c_token=768))
 
     # Positional Embeddings
     c_fourier: int = 256
@@ -108,20 +101,25 @@ class DiffusionConfig:
     s_max: float = 160.0
     rho: int = 7
 
-@dataclass
-class TrainingConfig:
+class TrainingConfig(BaseModel):
     micro_batch_size: int = 1
     batch_size: int = 16
 
     diffusion_micro_batch_size: int = 6
-    diffusion_batch_size = 48
+    diffusion_batch_size: int = 48
 
 
-@dataclass
-class Config:
-    global_config: GlobalConfig = field(default_factory=lambda: GlobalConfig())
-    featurization_config: FeaturizationConfig = field(default_factory=lambda: FeaturizationConfig())
-    input_embedding_config: InputEmbeddingConfig = field(default_factory=lambda: InputEmbeddingConfig())
-    evoformer_config: EvoformerConfig = field(default_factory=lambda: EvoformerConfig())
-    diffusion_config: DiffusionConfig = field(default_factory=lambda: DiffusionConfig())
-    training_config: TrainingConfig = field(default_factory=lambda: TrainingConfig())
+class Config(BaseModel):
+    global_config: GlobalConfig = Field(default_factory=lambda: GlobalConfig())
+    featurization_config: FeaturizationConfig = Field(default_factory=lambda: FeaturizationConfig())
+    input_embedding_config: InputEmbeddingConfig = Field(default_factory=lambda: InputEmbeddingConfig())
+    evoformer_config: EvoformerConfig = Field(default_factory=lambda: EvoformerConfig())
+    diffusion_config: DiffusionConfig = Field(default_factory=lambda: DiffusionConfig())
+    training_config: TrainingConfig = Field(default_factory=lambda: TrainingConfig())
+
+def load_config(file_name):
+    with open(file_name) as f:
+        data = yaml.safe_load(f)
+
+    config = Config.model_validate(data)
+    return config

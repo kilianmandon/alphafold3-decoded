@@ -18,9 +18,9 @@ from biotite.structure import AtomArray
 
 import common.utils as utils
 from common.block_sparse_tensor import ExtendedBlockMask
+from typing import TypeVar
 
-
-Array = np.ndarray | torch.Tensor
+Array = TypeVar('Array', np.ndarray, torch.Tensor)
 
 @dataclass
 class ReferenceFeatures:
@@ -142,7 +142,7 @@ class ReferenceFeatures:
         # Switched to index-based mapping to allow for torch.compile
 
         out_flat = out.view((-1,) + feature_shape)
-        feat_flat = feature.view((-1,) + feature_shape)
+        feat_flat = feature.reshape((-1,) + feature_shape)
         out_flat[token_layout_ref_mask_nonzero] = feat_flat[mask_nonzero]
 
         """ End of your code """

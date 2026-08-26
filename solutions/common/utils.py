@@ -10,9 +10,9 @@ from atomworks.io.parser import parse_atom_array
 from atomworks.io.tools.inference import components_to_atom_array
 
 from torch.utils.checkpoint import create_selective_checkpoint_contexts, CheckpointPolicy
+from typing import TypeVar
 
-
-Array = np.ndarray | torch.Tensor
+Array = TypeVar('Array', np.ndarray, torch.Tensor)
 
 def pad_to_shape(data: Array , padded_shape, value=0):
     """

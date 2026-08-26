@@ -1,12 +1,8 @@
-import copy
-
 from config import Config, MSAModuleConfig, PairformerConfig, TemplateModuleConfig
 from feature_extraction.feature_extraction import Batch, tree_map
 from feature_extraction.token_features import TokenFeatures
 import torch
 from torch import nn
-from torch.nn import functional as F
-import tqdm
 from torch.nn.attention.flex_attention import flex_attention
 
 from common.modules import AttentionPairBias, Transition
@@ -25,11 +21,11 @@ class Evoformer(nn.Module):
         c_m = global_config.c_m
         c_z = global_config.c_z
         msa_feat_dim = global_config.msa_feat_dim
-        target_feat_dim = global_config.c_s_input
+        c_s_input = global_config.c_s_input
         rel_feat_dim = global_config.rel_feat_dim
         
 
-        self.input_embedder = InputEmbedder(c_s, c_z, target_feat_dim, rel_feat_dim, input_embedding_config)
+        self.input_embedder = InputEmbedder(c_s, c_z, c_s_input, rel_feat_dim, input_embedding_config)
 
         self.layer_norm_prev_z = nn.LayerNorm(c_z)
         self.prev_z_embedding = nn.Linear(c_z, c_z, bias=False)
@@ -37,7 +33,7 @@ class Evoformer(nn.Module):
         self.prev_s_embedding = nn.Linear(c_s, c_s, bias=False)
 
         self.template_embedder = TemplateEmbedder(c_z, evoformer_config.template_module_config)
-        self.msa_module = MSAModule(c_m, c_z, msa_feat_dim, target_feat_dim, evoformer_config.msa_module_config)
+        self.msa_module = MSAModule(c_m, c_z, msa_feat_dim, c_s_input, evoformer_config.msa_module_config)
         self.pairformer = PairFormer(c_s, c_z, evoformer_config.pairformer_config)
         self.n_cycle = n_cycle
         self.c_s = c_s
@@ -166,14 +162,14 @@ class MSAPairWeightedAveraging(nn.Module):
         self.linear_b = nn.Linear(c_z, n_head, bias=False)
         self.linear_g = nn.Linear(c_m, c*n_head, bias=False)
         self.linear_out = nn.Linear(c*n_head, c_m, bias=False)
-        self.N_head = n_head
+        self.n_head = n_head
         self.c = c
 
     def forward(self, m, z, single_mask):
         # m has shape (*, N_seq, N_token, c_m)
         # z has shape (*, N_token, N_token, c_z)
         m = self.layer_norm_m(m)
-        v = self.linear_v(m).unflatten(-1, (self.N_head, self.c))
+        v = self.linear_v(m).unflatten(-1, (self.n_head, self.c))
         b = self.linear_b(self.layer_norm_z(z))
         g = torch.sigmoid(self.linear_g(m))
 
@@ -233,7 +229,7 @@ class TriangleAttention(nn.Module):
         self.linear_b = nn.Linear(c_z, n_head, bias=False)
         self.linear_g = nn.Linear(c_z, n_head*c, bias=False)
         self.linear_out = nn.Linear(c*n_head, c_z, bias=False)
-        self.N_head = n_head
+        self.n_head = n_head
         self.c = c
         self.starting_node = starting_node
 
@@ -243,16 +239,16 @@ class TriangleAttention(nn.Module):
             self.flex_attention = flex_attention
 
     def forward(self, z, single_mask):
-        N_head = self.N_head
+        n_head = self.n_head
         c = self.c
         N_token = z.shape[-3]
         batch_shape = z.shape[:-3]
 
         z = self.layer_norm_z(z)
-        q = self.linear_q(z).unflatten(-1, (N_head, c))
-        k = self.linear_k(z).unflatten(-1, (N_head, c))
-        v = self.linear_v(z).unflatten(-1, (N_head, c))
-        g = self.linear_g(z).unflatten(-1, (N_head, c))
+        q = self.linear_q(z).unflatten(-1, (n_head, c))
+        k = self.linear_k(z).unflatten(-1, (n_head, c))
+        v = self.linear_v(z).unflatten(-1, (n_head, c))
+        g = self.linear_g(z).unflatten(-1, (n_head, c))
 
         bias = self.linear_b(z)
 
@@ -289,7 +285,7 @@ class TriangleAttention(nn.Module):
 
         o = self.flex_attention(q, k, v, score_mod=bias_score_mod)
 
-        o = o.reshape(batch_shape + (N_token, N_head, N_token, c))
+        o = o.reshape(batch_shape + (N_token, n_head, N_token, c))
 
         if self.starting_node:
             o = torch.einsum('...ihjc->...ijhc', o)

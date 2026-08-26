@@ -87,7 +87,7 @@ If you encounter import errors, it is likely that your python path is not set up
 | Chapter | Code | Video |
 |---|---|---|
 | feature_extraction | ✅ Ready | 🎬 [Ready](https://youtu.be/jI31LflR1Og) |
-| input_embedding | — | — |
+| input_embedding | ✅ Ready | in progress |
 | evoformer | — | — |
 | diffusion | — | — |
 | training | — | — |

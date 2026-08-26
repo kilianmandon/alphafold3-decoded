@@ -30,7 +30,7 @@ class DiffusionModule(nn.Module):
 
         self.diffusion_conditioning = DiffusionConditioning(c_s, c_z, c_s_input, rel_feat_dim, sigma_data, c_fourier)
         self.atom_att_enc = AtomAttentionEncoder(c_s, c_z, diffusion_config.atom_attention_config, use_trunk=True)
-        self.diffusion_transformer = DiffusionTransformer(c_token, c_z, n_head=n_head_diffusion_transformer, c_s=c_s, n_blocks=n_block_diffusion_transformer)
+        self.diffusion_transformer = DiffusionTransformer(c_token, c_z, n_head=n_head_diffusion_transformer, c_s=c_s, n_blocks=n_block_diffusion_transformer, atom_level=False)
         self.atom_att_dec = AtomAttentionDecoder(diffusion_config.atom_attention_config)
 
         self.layer_norm_s = nn.LayerNorm(c_s, bias=False)
@@ -71,7 +71,7 @@ class DiffusionModule(nn.Module):
 
 
 class DiffusionConditioning(nn.Module):
-    def __init__(self, c_s, c_z, target_feat_dim, rel_feat_dim, sigma_data, c_fourier):
+    def __init__(self, c_s, c_z, c_s_input, rel_feat_dim, sigma_data, c_fourier):
         super().__init__()
 
         self.sigma_data = sigma_data
@@ -79,8 +79,8 @@ class DiffusionConditioning(nn.Module):
         self.layer_norm_z = nn.LayerNorm(rel_feat_dim + c_z, bias=False)
         self.z_transition = nn.ModuleList([Transition(c_z, n=2) for _ in range(2)])
 
-        self.layer_norm_s = nn.LayerNorm(target_feat_dim + c_s, bias=False)
-        self.linear_s = nn.Linear(target_feat_dim + c_s, c_s, bias=False)
+        self.layer_norm_s = nn.LayerNorm(c_s_input + c_s, bias=False)
+        self.linear_s = nn.Linear(c_s_input + c_s, c_s, bias=False)
         self.s_transition = nn.ModuleList([Transition(c_s, n=2) for _ in range(2)])
 
         self.layer_norm_fourier = nn.LayerNorm(c_fourier, bias=False)

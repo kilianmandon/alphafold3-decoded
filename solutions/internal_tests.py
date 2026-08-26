@@ -148,12 +148,6 @@ def main(test_name):
         'aug_trans': ttr.load_all('diffusion/rand_aug/trans', processing=[indexing(0), to_device, to_float]),
     }
 
-    ttr.compare({
-        's_input': s_input,
-        's_trunk': s_trunk, 
-        'z_trunk': z_trunk,
-        'rel_feat': rel_feat,
-    }, 'quick_test')
 
     print('Running diffusion tests...')
     with ttr.Chapter('diffusion'):
@@ -315,7 +309,7 @@ if __name__=='__main__':
     # with torch.no_grad():
     #     inference()
     test_name = 'lysozyme'
-    with torch.no_grad(), ttr.TensorTrace(f'/workspace/test/alphafold3-decoded/data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
+    with torch.no_grad(), ttr.TensorTrace(f'data/tensortraces/{test_name}_trace', mode='read', framework='pytorch'):
         main(test_name)
     # with torch.no_grad():
     #     batch_test()

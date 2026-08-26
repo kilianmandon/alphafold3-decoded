@@ -160,7 +160,7 @@ def profile_diffusion_module(model, batch, config, bf16=False):
     q_skip = torch.randn(diff_batch_shape + (n_atoms, c_atom), device=device)
     c_skip = torch.randn(diff_batch_shape + (n_atoms, c_atom), device=device)
     p_skip_prep = torch.randn(diff_batch_shape + (n_atoms, 1, c_atompair), device=device)
-    p_skip = BlockSparseTensor.from_broadcast(p_skip_prep, reference_features.block_mask_diffusion, diff_batch_shape) 
+    p_skip = BlockSparseTensor.broadcast_up(p_skip_prep, reference_features.block_mask_diffusion, diff_batch_shape) 
 
 
     context = contextlib.nullcontext() if not bf16 else torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16) if bf16 else contextlib.nullcontext()

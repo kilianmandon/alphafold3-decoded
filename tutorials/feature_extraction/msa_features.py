@@ -14,8 +14,9 @@ from atomworks.io.utils.selection import get_residue_starts
 from torch.nn import functional as F
 import common.utils as utils
 from common.residue_constants import AF3_TOKENS_MAP, PROTEIN_TO_ID
+from typing import TypeVar
 
-Array = np.ndarray | torch.Tensor
+Array = TypeVar('Array', np.ndarray, torch.Tensor)
 
 
 @dataclass

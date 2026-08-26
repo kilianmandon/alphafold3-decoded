@@ -20,9 +20,9 @@ from feature_extraction.reference_features import (
     ReferenceFeatures,
 )
 from feature_extraction.token_features import CalculateTokenFeatures, TokenFeatures
+from typing import TypeVar
 
-
-Array = np.ndarray | torch.Tensor
+Array = TypeVar('Array', np.ndarray, torch.Tensor)
 
 
 @dataclass

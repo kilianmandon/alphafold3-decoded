@@ -12,34 +12,34 @@ import zstandard as zstd
 def create_atom_att_encoder(jax_base, jax_sub, pytorch_base, use_trunk=False):
     name_map_att_enc = {
         f'{jax_base}/{jax_sub}_embed_ref_pos': {
-            'weights': f'{pytorch_base}.embed_ref_pos.weight'
+            'weights': f'{pytorch_base}.single_atom_conditioning.embed_ref_pos.weight'
         },
         f'{jax_base}/{jax_sub}_embed_ref_charge': {
-            'weights': f'{pytorch_base}.embed_ref_charge.weight'
+            'weights': f'{pytorch_base}.single_atom_conditioning.embed_ref_charge.weight'
         },
         f'{jax_base}/{jax_sub}_embed_ref_element': {
-            'weights': f'{pytorch_base}.embed_ref_element.weight'
+            'weights': f'{pytorch_base}.single_atom_conditioning.embed_ref_element.weight'
         },
         f'{jax_base}/{jax_sub}_embed_ref_mask': {
-            'weights': f'{pytorch_base}.embed_ref_mask.weight'
+            'weights': f'{pytorch_base}.single_atom_conditioning.embed_ref_mask.weight'
         },
         f'{jax_base}/{jax_sub}_embed_ref_atom_name': {
-            'weights': f'{pytorch_base}.embed_ref_atom_name.weight'
+            'weights': f'{pytorch_base}.single_atom_conditioning.embed_ref_atom_name.weight'
         },
         f'{jax_base}/{jax_sub}_single_to_pair_cond_col_1': {
-            'weights': f'{pytorch_base}.single_to_pair_col.weight'
+            'weights': f'{pytorch_base}.single_to_pair_right.weight'
         },
         f'{jax_base}/{jax_sub}_single_to_pair_cond_row_1': {
-            'weights': f'{pytorch_base}.single_to_pair_row.weight'
+            'weights': f'{pytorch_base}.single_to_pair_left.weight'
         },
         f'{jax_base}/{jax_sub}_embed_pair_offsets_1': {
-            'weights': f'{pytorch_base}.embed_pair_offsets.weight'
+            'weights': f'{pytorch_base}.atom_pair_conditioning.embed_pair_offsets.weight'
         },
         f'{jax_base}/{jax_sub}_embed_pair_distances_1': {
-            'weights': f'{pytorch_base}.embed_pair_distances.weight'
+            'weights': f'{pytorch_base}.atom_pair_conditioning.embed_pair_distances.weight'
         },
         f'{jax_base}/{jax_sub}_embed_pair_offsets_valid': {
-            'weights': f'{pytorch_base}.embed_pair_mask.weight'
+            'weights': f'{pytorch_base}.atom_pair_conditioning.embed_pair_mask.weight'
         },
         f'{jax_base}/{jax_sub}_pair_mlp_1': {
             'weights': f'{pytorch_base}.pair_mlp.1.weight'
@@ -142,15 +142,15 @@ def create_atom_att_encoder(jax_base, jax_sub, pytorch_base, use_trunk=False):
         },
         f'{jax_base}/{jax_sub}_atom_transformer_encoder/__layer_stack_with_per_layer/{jax_sub}_atom_transformer_encoderffw_adaptive_zero_cond': {
             'split': 'XXX',
-            'weights': f'{pytorch_base}.atom_transformer.cond_trans.XXX.ada_zero_init.linear_cond.weight',
-            'bias': f'{pytorch_base}.atom_transformer.cond_trans.XXX.ada_zero_init.linear_cond.bias',
+            'weights': f'{pytorch_base}.atom_transformer.cond_trans.XXX.linear_cond.weight',
+            'bias': f'{pytorch_base}.atom_transformer.cond_trans.XXX.linear_cond.bias',
         },
         f'{jax_base}/{jax_sub}_atom_transformer_encoder/__layer_stack_with_per_layer/{jax_sub}_atom_transformer_encoderffw_transition2': {
             'split': 'XXX',
-            'weights': f'{pytorch_base}.atom_transformer.cond_trans.XXX.ada_zero_init.linear_transition.weight',
+            'weights': f'{pytorch_base}.atom_transformer.cond_trans.XXX.linear_transition.weight',
         },
         f'{jax_base}/{jax_sub}_project_atom_features_for_aggr': {
-            'weights': f'{pytorch_base}.project_atom_features.weight',
+            'weights': f'{pytorch_base}.linear_out.weight',
         }
     }
 
@@ -1283,9 +1283,9 @@ name_map_diffusion_transformer = {
     'diffuser/~/diffusion_head/transformer/__layer_stack_with_per_layer/__layer_stack_with_per_layer/transformerffw_adaptive_zero_cond': {
         'split': 'XXX',
         # Shape: [24, 768]
-        'bias': 'diffusion_module.diffusion_transformer.cond_trans.XXX.ada_zero_init.linear_cond.bias',
+        'bias': 'diffusion_module.diffusion_transformer.cond_trans.XXX.linear_cond.bias',
         # Shape: [24, 384, 768]
-        'weights': 'diffusion_module.diffusion_transformer.cond_trans.XXX.ada_zero_init.linear_cond.weight',
+        'weights': 'diffusion_module.diffusion_transformer.cond_trans.XXX.linear_cond.weight',
     },
     'diffuser/~/diffusion_head/transformer/__layer_stack_with_per_layer/__layer_stack_with_per_layer/transformerffw_single_cond_layer_norm': {
         'split': 'XXX',
@@ -1319,7 +1319,7 @@ name_map_diffusion_transformer = {
     'diffuser/~/diffusion_head/transformer/__layer_stack_with_per_layer/__layer_stack_with_per_layer/transformerffw_transition2': {
         'split': 'XXX',
         # Shape: [24, 1536, 768]
-        'weights': 'diffusion_module.diffusion_transformer.cond_trans.XXX.ada_zero_init.linear_transition.weight',
+        'weights': 'diffusion_module.diffusion_transformer.cond_trans.XXX.linear_transition.weight',
     },
 }
 
@@ -1443,14 +1443,14 @@ name_map_atom_att_dec = {
 
     'diffuser/~/diffusion_head/diffusion_atom_transformer_decoder/__layer_stack_with_per_layer/diffusion_atom_transformer_decoderffw_transition2': {
         'split': 'XXX',
-        'weights': 'diffusion_module.atom_att_dec.atom_transformer.cond_trans.XXX.ada_zero_init.linear_transition.weight',
+        'weights': 'diffusion_module.atom_att_dec.atom_transformer.cond_trans.XXX.linear_transition.weight',
     },
     'diffuser/~/diffusion_head/diffusion_atom_transformer_decoder/__layer_stack_with_per_layer/diffusion_atom_transformer_decoderffw_adaptive_zero_cond': {
         'split': 'XXX',
         # Shape: [3, 128]
-        'bias': 'diffusion_module.atom_att_dec.atom_transformer.cond_trans.XXX.ada_zero_init.linear_cond.bias',
+        'bias': 'diffusion_module.atom_att_dec.atom_transformer.cond_trans.XXX.linear_cond.bias',
         # Shape: [3, 128, 128]
-        'weights': 'diffusion_module.atom_att_dec.atom_transformer.cond_trans.XXX.ada_zero_init.linear_cond.weight',
+        'weights': 'diffusion_module.atom_att_dec.atom_transformer.cond_trans.XXX.linear_cond.weight',
     },
 
     # After Transformer Decoder
